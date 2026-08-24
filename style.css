@@ -425,9 +425,14 @@ body.cockpit-mode #cockpit-cloud-effects.active {
 /* ── Title Bar ────────────────────────────────── */
 #title-bar {
   position: fixed;
-  top: 32px;
-  left: 36px;
+  /* Fluid inset: the title is one of three fixed items sharing the top row
+     (title / #top-center-actions / #style-indicator). Pulling it toward the
+     corner on narrow viewports is what keeps the centered action buttons
+     clear — see the responsive block below. */
+  top: clamp(14px, 2.4vw, 32px);
+  left: clamp(14px, 2.5vw, 36px);
   z-index: 100;
+  max-width: calc(100vw - clamp(28px, 5vw, 72px));
   pointer-events: none;
   user-select: none;
 }
@@ -436,8 +441,8 @@ body.cockpit-mode #cockpit-cloud-effects.active {
   position: absolute;
   top: -20px;
   left: -20px;
-  width: 200px;
-  height: 80px;
+  width: clamp(120px, 26vw, 200px);
+  height: clamp(52px, 10vw, 80px);
   background: radial-gradient(ellipse, var(--accent-dim) 0%, transparent 70%);
   filter: blur(20px);
   opacity: 0.6;
@@ -446,11 +451,16 @@ body.cockpit-mode #cockpit-cloud-effects.active {
 #title-bar h1 {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: clamp(7px, 1.1vw, 12px);
   font-family: var(--font-mono);
-  font-size: 26px;
+  /* Fluid type. The 26px/8px pair is the full-size design (reached at ~1090px
+     and above, which is the framing used in the demo); below that both the
+     glyph size and the tracking scale together so the wordmark keeps its
+     proportions instead of running off the viewport. */
+  font-size: clamp(12px, 2.4vw, 26px);
   font-weight: 600;
-  letter-spacing: 8px;
+  letter-spacing: clamp(1.5px, 0.74vw, 8px);
+  white-space: nowrap;
   color: var(--text-primary);
   text-shadow: 0 0 30px var(--accent-glow);
   position: relative;
@@ -459,7 +469,8 @@ body.cockpit-mode #cockpit-cloud-effects.active {
 #title-bar .title-logo {
   position: relative;
   display: block;
-  width: 52px;
+  width: clamp(24px, 4.6vw, 52px);
+  flex: none;
   height: auto;
   filter: drop-shadow(0 0 12px rgba(0, 246, 255, 0.5));
 }
@@ -537,19 +548,24 @@ body.cockpit-mode #cockpit-cloud-effects.active {
 
 #title-bar .subtitle {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 5px;
+  font-size: clamp(8px, 1vw, 11px);
+  letter-spacing: clamp(1.5px, 0.46vw, 5px);
   color: var(--text-dim);
-  margin-top: 8px;
+  margin-top: clamp(4px, 0.7vw, 8px);
   text-transform: uppercase;
+  white-space: nowrap;
 }
+
+/* Narrow-viewport layout for the title bar lives with #top-center-actions
+   further down, so the cascade order can override that rule too. */
 
 /* ── Style Indicator ──────────────────────────── */
 #style-indicator {
   position: fixed;
-  top: 32px;
-  right: 36px;
+  top: clamp(14px, 2.4vw, 32px);
+  right: clamp(14px, 2.5vw, 36px);
   z-index: 100;
+  max-width: calc(50vw - clamp(20px, 4vw, 44px));
   pointer-events: none;
   user-select: none;
   text-align: right;
@@ -558,8 +574,9 @@ body.cockpit-mode #cockpit-cloud-effects.active {
 #style-indicator .indicator-label {
   display: block;
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 3px;
+  font-size: clamp(8px, 0.92vw, 10px);
+  letter-spacing: clamp(1.5px, 0.28vw, 3px);
+  white-space: nowrap;
   color: var(--text-dim);
   text-transform: uppercase;
 }
@@ -567,11 +584,12 @@ body.cockpit-mode #cockpit-cloud-effects.active {
 #style-indicator .indicator-value {
   display: block;
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: clamp(10px, 1.47vw, 16px);
   font-weight: 500;
-  letter-spacing: 5px;
+  letter-spacing: clamp(1.5px, 0.46vw, 5px);
   color: var(--accent);
   margin-top: 4px;
+  white-space: nowrap;
   text-shadow: 0 0 20px var(--accent-glow);
   transition: var(--transition-smooth);
 }
@@ -1919,6 +1937,52 @@ body.ui-clean-view #scene-runtime.active {
 #top-center-actions .material-symbols-outlined {
   font-size: 18px;
 }
+
+/* ── Top-row chrome on narrow viewports ───────────
+   Three fixed items share the top row: #title-bar (left), #top-center-actions
+   (centred) and #style-indicator (right). Fluid type above keeps each one from
+   overflowing, but under ~640px the centre slot is too narrow to sit between
+   the other two — the wordmark ran straight through the buttons and off the
+   right edge. Below that width the actions un-centre to the right rail and the
+   style readout drops to the line beneath them, so the layout keeps the
+   designed hierarchy (brand left, state right) without any overlap. */
+@media (max-width: 640px) {
+  /* One source for the shared top inset, so the action row and the readout
+     stacked beneath it cannot drift apart from the title they align with. */
+  #top-center-actions,
+  #style-indicator {
+    --top-row-inset: clamp(14px, 2.4vw, 32px);
+    --top-row-height: 32px;
+  }
+
+  #top-center-actions {
+    top: var(--top-row-inset);
+    left: auto;
+    right: clamp(14px, 2.5vw, 36px);
+    gap: 8px;
+    transform: none;
+  }
+
+  #top-center-actions button {
+    width: var(--top-row-height);
+    height: var(--top-row-height);
+  }
+
+  #style-indicator {
+    /* Clear the action row that now occupies the top-right corner. */
+    top: calc(var(--top-row-inset) + var(--top-row-height) + 10px);
+    max-width: calc(100vw - clamp(28px, 5vw, 72px));
+  }
+}
+
+@media (max-width: 400px) {
+  #title-bar .subtitle {
+    /* Decorative tagline only — it is the first thing to go when the
+       wordmark itself needs the room. */
+    display: none;
+  }
+}
+
 
 #global-loading-status {
   position: fixed;
@@ -4237,7 +4301,11 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
 
 .hud-summary-wrap {
   margin-top: 6px;
-  max-width: 420px;
+  /* The summary is the widest thing in the top-left corner, so it sets the
+     whole readout's width. A flat 420px overran a phone viewport by ~70px —
+     the corner is inset and carries a bracket glyph, so the usable width is
+     roughly `100vw - 4rem`. The cap still wins at every desktop size. */
+  max-width: min(420px, calc(100vw - 4rem));
 }
 
 .hud-summary-label {
@@ -4370,7 +4438,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
 }
 
 #intel-hud[data-variant='minimal'] .hud-summary-wrap {
-  max-width: 280px;
+  max-width: min(280px, calc(100vw - 4rem));
 }
 
 /* ── Data Layer Toggle Panel ─────────────────── */
@@ -6782,23 +6850,12 @@ body.scene-playback-mode :is(#clear-selected-layers, #reset-globe-view) {
     max-width: none;
   }
 
-  #title-bar {
-    top: 20px;
-    left: 20px;
-  }
-
-  #title-bar h1 {
-    font-size: 16px;
-    letter-spacing: 4px;
-  }
-
-  #title-bar h1 {
-    gap: 8px;
-  }
-
-  #title-bar .title-logo {
-    width: 36px;
-  }
+  /* The title bar's own sizes used to step down here — a single hard jump at
+     720px, with nothing between it and the full 26px design, so the wordmark
+     collided with the centred action buttons through the whole 721-1090px
+     range and still overran the buttons under ~500px. Its type, logo, gap and
+     inset are all fluid now (see the #title-bar rules), which covers this
+     width continuously; overriding them again here would freeze that scale. */
 
   #location-bar {
     left: 16px;
@@ -9160,4 +9217,197 @@ body.scene-playback-mode #first-run-launcher {
   .first-run-arrow { transition: none; }
   /* Scrolling a tile into view must not animate either. */
   .first-run-choices { scroll-behavior: auto; }
+}
+
+/* ── Static deployment notice ─────────────────────
+   Shown once on a build with no /api middleware behind it (GitHub Pages and
+   friends). It explains which half of the app is live and takes the two
+   browser-side keys, so a forked deployment can reach the photorealistic globe
+   without a rebuild. Same glass idiom as the panels; z-index sits above the
+   panel band (100-139) and the voice pill (150), below the toast (200). */
+#static-build-notice {
+  position: fixed;
+  z-index: 160;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  left: 50%;
+  width: min(46rem, calc(100vw - 1.5rem));
+  max-height: min(30rem, calc(100dvh - 6rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(0.9rem, 2vw, 1.4rem);
+  transform: translateX(-50%);
+  color: var(--text-primary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--panel-radius);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.6),
+    0 0 24px rgba(0, 212, 255, 0.08);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+#static-build-notice .static-build-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+#static-build-notice .static-build-logo {
+  width: 2.25rem;
+  height: auto;
+  flex: none;
+  filter: drop-shadow(0 0 10px rgba(0, 246, 255, 0.45));
+}
+
+#static-build-notice h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+#static-build-notice p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+#static-build-notice .static-build-close {
+  margin-left: auto;
+  padding: 0 0.35rem;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+#static-build-notice .static-build-close:hover,
+#static-build-notice .static-build-close:focus-visible {
+  color: var(--text-primary);
+}
+
+#static-build-notice .static-build-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.9rem;
+}
+
+#static-build-notice h3 {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 2px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+#static-build-notice ul {
+  margin: 0;
+  padding-left: 1.05rem;
+  color: var(--text-secondary);
+}
+
+#static-build-notice code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--text-primary);
+}
+
+#static-build-notice .static-build-keys {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem 1.25rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+#static-build-notice .static-build-keys > p,
+#static-build-notice .static-build-actions {
+  grid-column: 1 / -1;
+}
+
+#static-build-notice .static-build-key {
+  display: block;
+}
+
+#static-build-notice .static-build-key-name {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+#static-build-notice input {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--btn-radius);
+  outline: none;
+}
+
+#static-build-notice input:focus-visible {
+  border-color: var(--accent);
+}
+
+#static-build-notice small {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+#static-build-notice .static-build-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+#static-build-notice .static-build-actions button {
+  padding: 0.45rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--btn-radius);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+#static-build-notice .static-build-actions button[type='submit'] {
+  color: var(--accent);
+  border-color: var(--accent-glow);
+}
+
+#static-build-notice .static-build-actions button:hover,
+#static-build-notice .static-build-actions button:focus-visible {
+  border-color: var(--glass-border-hover);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* Single column once two columns would leave each side too narrow to read. */
+@media (max-width: 620px) {
+  #static-build-notice .static-build-cols,
+  #static-build-notice .static-build-keys {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

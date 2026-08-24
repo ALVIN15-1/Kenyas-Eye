@@ -77,6 +77,14 @@ The dev server binds to **localhost** — your keys stay on your machine. Sharin
 
 **macOS shortcut:** `./scripts/dev-fresh.sh` clears the Vite cache and pulls your keys straight from the Keychain.
 
+**No install? Publish it instead.** `npm run build` produces a static `dist/`
+that runs from any host and any URL prefix, and the repo ships a GitHub Pages
+workflow. You get the globe, every visual style, share links, the bundled
+datasets, and the CORS-open feeds (earthquakes, bikeshare) — with or without an
+API key. The live intelligence feeds still need the dev server, because their
+proxies are what keep those keys off the client. Full split and setup in
+[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md).
+
 ---
 
 ## 🕐 The First Five Minutes
@@ -322,6 +330,20 @@ Honest numbers, roughly, as of mid-2026 — always check the provider pricing pa
 ### 🧗 The floor is low on purpose
 
 Everything above is the deliberately cheap baseline — enough to get a real taste of geospatial intelligence, GEOINT, and OSINT without ever talking to a sales team. You'll also notice the ceiling: terrestrial AIS goes quiet mid-ocean and satellite AIS costs real money; premium imagery, SAR, and the deeper commercial feeds live behind enterprise contracts. That's not a limit of the architecture — every layer here is a pattern you can point at your own data sources. This repo hands you the foundation; what you fuse into it is up to you.
+
+### 🌐 Publishing a static instance
+
+A built `dist/` is safe to publish in a way a dev server is not: the proxies —
+and every server-side key they hold — simply are not in it. What ships is the
+app plus the two keys that are *meant* to be client-side (Google Maps, Cesium
+ion), and those are visible in devtools on any deployment, local included.
+
+The exposure that remains is **quota**: a public URL means anyone who loads it
+spends yours. Restrict the Google key by HTTP referrer and API, use a
+URL-restricted `assets:read` token for Cesium ion, and set provider-side budget
+caps before you share the link. Or publish with no keys at all — the site runs
+on the OpenStreetMap globe and lets each visitor supply their own.
+See [docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md).
 
 ### 🔒 Sharing an instance
 

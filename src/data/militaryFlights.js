@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { aircraftIncludedInNearby } from './aircraftNearbyPolicy.js';
+import { appAssetUrl } from '../appAssetUrl.js';
 import { registerPickOwner, unregisterPickOwner, isOwnedByOtherLayer, resolvePickId } from './pickRegistry.js';
 import { registerSpriteCollection, restoreSpriteOrder } from './spriteOrder.js';
 import {
@@ -1593,7 +1594,7 @@ async function _ensureModel(icao24) {
   try {
     const spec = _modelSpec(_flightData.get(icao24)?.klass);
     model = await Cesium.Model.fromGltfAsync({
-      url: spec.url,
+      url: appAssetUrl(spec.url),
       asynchronous: false,
       minimumPixelSize: MODEL_MIN_PX,
       scale: spec.scale,
@@ -1713,7 +1714,7 @@ function _updateTrackedModel() {
     const trackedKey = _specKeyFor(_flightData.get(_trackedIcao)?.klass);
     const trackedIrBoost = _irBoost;
     Cesium.Model.fromGltfAsync({
-      url: trackedSpec.url,
+      url: appAssetUrl(trackedSpec.url),
       asynchronous: false,
       minimumPixelSize: TRACKED_MODEL_MIN_PX,
       scale: trackedSpec.scale,
@@ -2625,7 +2626,7 @@ const militaryFlightsLayer = {
     // destroy/re-init mid-load doesn't flip the flag for a torn-down lifecycle.
     if (!_preloadModel) {
       const epoch = _modelEpoch;
-      Cesium.Model.fromGltfAsync({ url: JET_MODEL_URL, asynchronous: false })
+      Cesium.Model.fromGltfAsync({ url: appAssetUrl(JET_MODEL_URL), asynchronous: false })
         .then((m) => {
           if (epoch === _modelEpoch) { _preloadModel = m; _planeModelLoaded = true; }
           else { try { m.destroy(); } catch { /* gone */ } }
