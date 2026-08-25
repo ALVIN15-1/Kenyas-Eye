@@ -22,7 +22,7 @@ Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic,
 
 <div align="center">
 
-**[Quick Start](#-quick-start) · [First Five Minutes](#-the-first-five-minutes) · [Talk to It](#-talk-to-it) · [What's Live](#-whats-on-the-globe) · [Under the Hood](#-under-the-hood) · [Keys & Costs](#-api-keys)**
+**[Quick Start](#-quick-start) · [First Five Minutes](#-the-first-five-minutes) · [Talk to It](#-talk-to-it) · [Type to It](#-type-to-it) · [What's Live](#-whats-on-the-globe) · [Under the Hood](#-under-the-hood) · [Keys & Costs](#-api-keys)**
 
 </div>
 
@@ -61,7 +61,7 @@ The live layers are grounded in public feeds: the airliner crossing your screen 
 
 Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 
-1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY`.
+1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY` (or `CESIUM_ION_TOKEN` — see [No billing account?](#-no-billing-account)).
 2. Install and run:
 
 ```bash
@@ -166,6 +166,47 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 
 ---
 
+## ⌨️ Type to It
+
+> Prefer typing, or want the agent to run entirely on your own hardware? The **AI AGENT** panel takes the same 28 tools over typed text, against **OpenAI**, **OpenRouter**, or a local **Ollama**. Voice is untouched and the two run side by side.
+
+Same agent, different transport. `fly to Tokyo`, `turn on the flights layer`, `switch to night vision`, `how many flights are over Texas?` — the panel shows each tool call as it runs and tags it with the result.
+
+| | Provider | What you get | Key |
+|---|---|---|---|
+| 🔴 | **OpenAI** | The same models the voice agent uses | reuses `OPENAI_API_KEY` |
+| 🔴 | **OpenRouter** | ~330 tool-capable models behind one key, with live pricing in the picker | `OPENROUTER_API_KEY` |
+| 🟢 | **Ollama** | Fully local. No key, no signup, no data leaving the box | none |
+
+The model picker populates itself from whichever provider you select, so pulling a bigger model into Ollama makes it appear with no config change. Models are filtered to those that support tool calling and have room for the tool prefix.
+
+**Cost.** Typed commands are dramatically cheaper than voice, because audio tokens are what cost money. A command runs roughly **$0.0002 to $0.0008** on a small hosted model, against roughly **$0.10 to $0.30 per minute** of open-mic voice. On Ollama it is free.
+
+### Running it locally
+
+```bash
+docker compose up -d                                # app + Ollama sidecar (GPU)
+docker compose exec ollama ollama pull qwen3:4b     # agent, needs tool calling
+docker compose exec ollama ollama pull llama3.2:3b  # HUD summary, needs instruct
+```
+
+Then open `http://localhost:4173` and pick **Ollama** in the panel. The five-word
+AI `SUMMARY` on the HUD follows the same provider, so going local takes that with
+it — worth more than the cost saving, since it otherwise posts your live
+coordinates to a hosted provider every 15 seconds.
+
+> [!IMPORTANT]
+> **Set `OLLAMA_CONTEXT_LENGTH` to at least 16384**, and use a **non-reasoning**
+> model for the HUD summary. Both defaults fail silently in ways that look like a
+> stupid model rather than a config error. `compose.yaml` handles both; if you run
+> Ollama yourself, see **[docs/LOCAL-MODELS.md](docs/LOCAL-MODELS.md)**.
+
+📖 **[Text agent reference](docs/TEXT-AGENT.md)** — providers, the tool loop, configuration, troubleshooting
+🖥️ **[Local models](docs/LOCAL-MODELS.md)** — Ollama setup, measured VRAM and context figures, model choice
+🐳 **[Docker](docs/DOCKER.md)** — the compose stack, GPU passthrough, volumes, exposure
+
+---
+
 ## 🛰️ What's on the Globe
 
 Thirteen live layers. **Ten of them need nothing at all** — no key, no account, no signup. (🟢 nothing · 🟡 free key · 🔴 metered.)
@@ -252,12 +293,46 @@ src/
 ├── mapStackController.js   # Google 3D / Bing / OSM switching
 ├── iconOrientation.js      # Screen-projected world-space headings + horizon cull
 ├── voice/                  # OpenAI Realtime session + 28 voice tools
+├── agent/                  # Typed console: provider registry, tool loop, panel
 ├── data/                   # One module per layer + management + context store
 │   └── local_data/         # Bundled datasets (per-folder provenance)
 └── scenes/                 # Cinematic scene director
 ```
 
 See [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md) for the authoritative runtime reference.
+
+---
+
+## 🆓 No billing account?
+
+The photorealistic globe has two routes to the same Google mesh, and only one of
+them needs a billing-enabled Google Cloud account:
+
+| Route | Credential | Geocoding | Allowance |
+|---|---|---|---|
+| **Google Map Tiles API** | `GOOGLE_MAPS_API_KEY` 🔴 | ✅ place search + reverse | 1,000 root tiles/month free, then metered |
+| **Cesium ion** | `CESIUM_ION_TOKEN` 🟡 | ❌ unavailable | ion's free Community allowance |
+
+CesiumJS streams an ion-hosted copy of the same tileset whenever no Google key is
+configured, and ion's free tier includes an allowance of those root tiles. So
+**an ion token alone gets you the photorealistic planet with no card**:
+
+```bash
+# .env — no Google Cloud account at all
+CESIUM_ION_TOKEN=your_ion_token_here
+```
+
+What you give up is **geocoding**: the app calls Google's Geocoding API directly,
+so search-by-name and reverse geocoding report unavailable. The bundled city
+presets use fixed coordinates and still work, as does every live layer. Add a
+Google key later and it takes over automatically.
+
+> [!NOTE]
+> ion *does* have its own geocoder, and its forward place-name search works
+> (reverse does not). It is not wired up because the response shape differs from
+> Google's — see [docs/MAP-CREDENTIALS.md](docs/MAP-CREDENTIALS.md#ion-does-offer-geocoding-but-the-app-does-not-use-it).
+
+🗺️ **[Map credentials reference](docs/MAP-CREDENTIALS.md)** — both routes step by step, token scoping, costs, and the caching terms
 
 ---
 

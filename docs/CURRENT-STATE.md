@@ -1560,7 +1560,11 @@ Use docs in this order when details conflict:
 
 1. `docs/CURRENT-STATE.md` (this file)
 2. `docs/opensky-auth.md` (OpenSky authentication)
-3. `CHANGELOG.md` (release history)
+3. `docs/MAP-CREDENTIALS.md` (Google vs Cesium ion tileset routes)
+4. `docs/TEXT-AGENT.md` (typed agent: providers, tool loop, configuration)
+5. `docs/LOCAL-MODELS.md` (Ollama: context window, model choice, VRAM)
+6. `docs/DOCKER.md` (container stack and GPU sidecar)
+7. `CHANGELOG.md` (release history)
 
 Historical planning documents may not match runtime behavior.
 
@@ -1572,11 +1576,31 @@ Historical planning documents may not match runtime behavior.
 
 ## Runtime Stack
 
-- Vite + CesiumJS app with Google Photorealistic 3D Tiles
+- Vite + CesiumJS app with Google Photorealistic 3D Tiles, authorized by EITHER
+  `GOOGLE_MAPS_API_KEY` (direct to the Map Tiles API) or `CESIUM_ION_TOKEN`
+  (CesiumJS streams an ion-hosted copy whenever `GoogleMaps.defaultApiKey` is
+  left undefined). Resolved in `src/mapCredentials.js`; the Google key wins when
+  both are set. The ion route loses Google geocoding, so place-name search and
+  reverse geocoding report unavailable while fixed-coordinate city presets still
+  work. ion does expose a Pelias geocoder (`IonGeocoderService`,
+  `api.cesium.com/v1/geocode`) whose forward search and autocomplete work but
+  whose reverse endpoint returns 405; it is not wired up because its response
+  shape differs from the Google one `searchAndFlyTo` expects. Startup fails only when NEITHER credential is present. Route is asserted
+  at the network layer by `scripts/qa-tileset-route.mjs`.
 - Scene/HUD/style systems in `src/ui.js` and `src/hud.js`
 - Layer management in `src/data/manager.js`
 - Map stack switching in `src/mapStackController.js`
 - Voice control in `src/voice/` (OpenAI Realtime over WebRTC)
+- Typed agent console in `src/agent/` (OpenAI-compatible chat completions over
+  OpenAI, OpenRouter, or a local Ollama). Shares the 28 tools and the operating
+  manual with voice; the manual itself lives in `src/agent/instructions.js` and
+  differs between transports only in five channel-specific directives.
+  Server relay is `/api/agent/config`, `/api/agent/models`, and
+  `/api/agent/command`; credentials stay server-side and the browser executes
+  the tools because they drive its own viewer. Malformed tool calls are
+  corrected server-side, since Ollama's compatible endpoint has no
+  `tool_choice`. A provider that truncates the ~11,300-token tool prefix is
+  detected from the returned prompt token count and reported with its remedy.
 - Voice map whiteboard annotations in `src/annotations/`
 - 3D aircraft/model tracking surfaces in `src/data/flights.js` and `src/data/militaryFlights.js`
 - Detection overlay and tracked-target readout in `src/data/detection.js`, `src/data/detectionDraw.js`, and `src/data/trackedReadout.js`
@@ -2171,7 +2195,17 @@ silently demoting every later lookup for the session.
 
 ### AI HUD Summary (June 2026)
 
-- HUD `SUMMARY` readout requests a five-word intelligence-style summary from `/api/openai/hud-summary` (model `OPENAI_HUD_SUMMARY_MODEL`, default `gpt-5-nano`, minimal reasoning).
+- HUD `SUMMARY` readout requests a five-word intelligence-style summary from
+  `/api/openai/hud-summary` (path retained for its QA consumers). It now runs
+  through the shared provider registry over chat completions rather than
+  OpenAI's Responses API, so OpenAI, OpenRouter, or a local Ollama can serve it.
+  Provider defaults to `GEV_AGENT_PROVIDER` and is overridden by
+  `GEV_HUD_PROVIDER`; model resolves `GEV_HUD_MODEL_<PROVIDER>` →
+  `GEV_HUD_MODEL` → `OPENAI_HUD_SUMMARY_MODEL` (OpenAI only) → the provider
+  default, so an unconfigured install behaves exactly as before (OpenAI,
+  `gpt-5-nano`). The Responses-only `reasoning.effort` hint is gone with the
+  transport; a reasoning model that returns empty content with
+  `finish_reason: length` is diagnosed and told to switch to an instruct model.
 - Input is the live basemap label context (place/street/nearby-place labels + enabled layers) — the model is instructed not to infer from coordinates.
 - Output is sanitized to exactly five words; falls back to the deterministic telemetry summary on error/timeout (5s abort); typewriter animation on update.
 
@@ -2572,6 +2606,18 @@ Replay transport uses one Play/Pause toggle plus Cancel. During ascent only the 
   (`QA_BASE_URL=http://localhost:4173 npm run qa:map-source-tray`). Add
   `-- --keyless` to force the no-ion-token expectations on a keyed server; both
   invocations are gates.
+- `scripts/qa-agent-panel.mjs`: browser proof for the typed agent console —
+  mount into the panel stack, provider and model population from the live
+  endpoints, and one typed command carried through the tool loop to a real
+  state change (`GEV_URL=http://localhost:4173 npm run qa:agent-panel`).
+  Defaults to the Ollama provider because it needs no credential.
+- `scripts/qa-tileset-route.mjs`: proves which upstream serves the
+  photorealistic tileset (`GEV_URL=... EXPECT=ion|google|none npm run
+  qa:tileset-route`). Asserts at the network layer because the route is
+  invisible in the UI. ion brokers access and returns a Google key, so tile
+  payloads stream from `tile.googleapis.com` on BOTH routes; the discriminator
+  is the `api.cesium.com/v1/assets/<id>/endpoint` request. A dummy ion token
+  proves only that ion is consulted, not that tiles arrive.
 - `scripts/qa-l9-matrix.mjs`: the L9 release-candidate QA matrix in one command
   (`node scripts/qa-l9-matrix.mjs --url http://localhost:4173`). Orchestrates
   the `qa-*.mjs` fleet plus `track-regression` as subprocesses and adds

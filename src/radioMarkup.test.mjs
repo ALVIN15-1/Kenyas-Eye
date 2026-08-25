@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { gevDirectives } from './agent/instructions.js';
 import test from 'node:test';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -9,6 +10,7 @@ const radio = readFileSync(new URL('./data/radio.js', import.meta.url), 'utf8');
 const rocketLaunches = readFileSync(new URL('./data/rocketLaunches.js', import.meta.url), 'utf8');
 const realtime = readFileSync(new URL('./voice/gevRealtime.js', import.meta.url), 'utf8');
 const voice = readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8');
+const voiceDirectives = gevDirectives({ modality: 'voice' });
 const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
 /** Parse the Realtime tool array out of the Vite config as real data. */
@@ -47,11 +49,11 @@ test('the counting contract is stated in the Realtime instructions', () => {
   // Product decision: "near" has one meaning per state, and every count names its
   // scope. Instruction text is the only place the narration rules can live, so
   // it is pinned — a silent trim here is a silent behaviour change.
-  const start = voice.indexOf("'COUNTING CONTRACT");
-  assert.ok(start >= 0, 'the counting contract instruction is missing');
-  // One instruction per source line; the string carries escaped quotes, so take
-  // the line rather than trying to match a quoted literal.
-  const text = voice.slice(start, voice.indexOf('\n', start));
+  // Read the LIVE directive rather than source text: the manual now lives in
+  // src/agent/instructions.js and is shared with the text transport, so pinning
+  // the runtime value also proves the shared copy still carries these rules.
+  const text = voiceDirectives.find((directive) => directive.startsWith('COUNTING CONTRACT'));
+  assert.ok(text, 'the counting contract instruction is missing');
   assert.match(text, /Contacts is ACTIVE/, 'rule 1: active means the Contacts window');
   assert.match(text, /contactsWindow/, 'rule 1 names its mechanism');
   assert.match(text, /call set_context_mode\{mode:"contacts"\} first/);
@@ -65,9 +67,8 @@ test('the counting contract is stated in the Realtime instructions', () => {
 });
 
 test('Context panel opening stays distinct from Contacts activation', () => {
-  const start = voice.indexOf("'For requests to open, show, reveal, or focus a menu/panel");
-  assert.ok(start >= 0, 'panel-routing instruction is missing');
-  const text = voice.slice(start, voice.indexOf('\n', start));
+  const text = voiceDirectives.find((directive) => directive.startsWith('For requests to open, show, reveal, or focus a menu/panel'));
+  assert.ok(text, 'panel-routing instruction is missing');
   assert.match(text, /"Open Context" means only set_panel_open/);
   assert.match(text, /does not activate a Context sub-mode/);
   assert.match(text, /"Open Contacts" means set_context_mode\{mode:"contacts"\}/);
@@ -75,9 +76,8 @@ test('Context panel opening stays distinct from Contacts activation', () => {
 });
 
 test('nearest-aircraft selection stays out of Contacts and Cockpit', () => {
-  const start = voice.indexOf("'For a request to enable an aircraft layer and SELECT or FIND");
-  assert.ok(start >= 0, 'nearest-aircraft selection routing instruction is missing');
-  const text = voice.slice(start, voice.indexOf('\n', start));
+  const text = voiceDirectives.find((directive) => directive.startsWith('For a request to enable an aircraft layer and SELECT or FIND'));
+  assert.ok(text, 'nearest-aircraft selection routing instruction is missing');
   assert.match(text, /Turn on flights and select the closest aircraft to Austin/);
   assert.match(text, /call select_nearest_aircraft once/);
   assert.match(text, /atomically turns on the requested aircraft layer first/);
