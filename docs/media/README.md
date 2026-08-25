@@ -1,5 +1,12 @@
 # README media provenance
 
+## Contributed screenshots
+
+- `text-agent-zoom-to-globe.png` — captured by Darren Dignam from a local
+  instance, contributed with this repository under the project's MIT License.
+  Google Maps and Cesium ion attribution is visible in the capture as required
+  by those providers' terms.
+
 ## Capture GIFs
 
 Bilawal Sidhu created and owns the following 17 GIFs and has authorized their inclusion and redistribution as part of this public repository and its project documentation. Any appearance by Bilawal Sidhu in these captures is included with his permission.

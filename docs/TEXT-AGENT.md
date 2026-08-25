@@ -3,6 +3,12 @@
 The **AI AGENT** panel drives the same 28 tools as voice, over typed text and any
 OpenAI-compatible chat endpoint. Voice is unchanged and the two run side by side.
 
+![The typed console running "zoom out to full planet view" on a local qwen3:4b, with the zoom_to_globe tool call tagged ok](media/text-agent-zoom-to-globe.png)
+
+*One typed command, executed by a model running on the operator's own GPU. The
+tool line shows `zoom_to_globe` and its `ok` result; the provider and model
+pickers and the per-command cost readout sit in the same panel.*
+
 - [Why it exists](#why-it-exists)
 - [Providers](#providers)
 - [How a command runs](#how-a-command-runs)
