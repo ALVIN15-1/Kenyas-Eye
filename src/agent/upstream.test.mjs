@@ -9,6 +9,9 @@ import assert from 'node:assert/strict';
 import { resolveProvider } from './providers.js';
 import {
   CAPABILITY_PROBE_LIMIT,
+  COMPLETION_TIMEOUT_MS,
+  LOCAL_COMPLETION_TIMEOUT_MS,
+  completionTimeoutFor,
   authHeaders,
   chatCompletionsUrl,
   describeTransportError,
@@ -286,4 +289,30 @@ test('requestChatCompletion sanitizes an upstream rejection and keeps the status
   assert.equal(result.ok, false);
   assert.equal(result.status, 429);
   assert.match(result.error, /rate limit/i);
+});
+
+test('completionTimeoutFor gives a local daemon room for a cold model load', () => {
+  assert.equal(completionTimeoutFor(OLLAMA), LOCAL_COMPLETION_TIMEOUT_MS);
+  assert.equal(completionTimeoutFor(OPENAI), COMPLETION_TIMEOUT_MS);
+  assert.equal(completionTimeoutFor(null), COMPLETION_TIMEOUT_MS);
+  assert.ok(LOCAL_COMPLETION_TIMEOUT_MS > COMPLETION_TIMEOUT_MS);
+});
+
+test('requestChatCompletion honours an explicit timeout over the provider default', async () => {
+  // A zero-length budget aborts immediately, which proves the override is used
+  // rather than the 300s local default silently applying.
+  const result = await requestChatCompletion({
+    provider: OLLAMA,
+    baseUrl: 'http://o:11434/v1',
+    apiKey: null,
+    model: 'm',
+    messages: [],
+    tools: [],
+    timeoutMs: 1,
+    fetchImpl: (url, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Timed out waiting for Ollama/);
 });

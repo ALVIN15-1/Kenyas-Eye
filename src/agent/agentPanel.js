@@ -317,12 +317,13 @@ export function mountAgentPanel({
     setBusy(true);
     setStatus(AGENT_STATUS.THINKING);
     try {
-      const result = await session.send(text, {
+      // handleEvent already renders the error entry; appending result.error
+      // here as well would show every failure twice.
+      await session.send(text, {
         provider: providerSelect.value,
         model: modelSelect.value,
         onEvent: handleEvent,
       });
-      if (!result.ok && result.error) append(ENTRY_KIND.ERROR, result.error);
     } finally {
       setBusy(false);
       setStatus(AGENT_STATUS.READY);

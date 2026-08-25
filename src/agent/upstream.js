@@ -18,8 +18,23 @@ import {
 /** Upstream wait ceiling for a model listing. Listings are small and cacheable. */
 export const MODELS_TIMEOUT_MS = 10_000;
 
-/** Upstream wait ceiling for one completion. Tool loops feel dead past this. */
+/** Upstream wait ceiling for one completion from a hosted provider. */
 export const COMPLETION_TIMEOUT_MS = 120_000;
+
+/**
+ * Wait ceiling for a local completion.
+ *
+ * A local daemon's first command after start pays for loading the model into
+ * VRAM before it processes a token, and this app's prefix is ~11,300 tokens.
+ * Measured cold on an 8 GB card, that exceeded the hosted ceiling outright, so
+ * a local provider gets its own budget rather than reporting a false timeout.
+ */
+export const LOCAL_COMPLETION_TIMEOUT_MS = 300_000;
+
+/** The completion budget appropriate to a provider. */
+export function completionTimeoutFor(provider) {
+  return provider?.kind === 'local' ? LOCAL_COMPLETION_TIMEOUT_MS : COMPLETION_TIMEOUT_MS;
+}
 
 /** Wait ceiling for one Ollama capability probe. */
 export const CAPABILITY_TIMEOUT_MS = 5_000;
@@ -261,8 +276,9 @@ export async function requestChatCompletion({
   messages,
   tools,
   fetchImpl,
-  timeoutMs = COMPLETION_TIMEOUT_MS,
+  timeoutMs,
 }) {
+  const budget = Number.isFinite(timeoutMs) ? timeoutMs : completionTimeoutFor(provider);
   const body = { model, messages };
   if (Array.isArray(tools) && tools.length) body.tools = tools;
 
@@ -272,7 +288,7 @@ export async function requestChatCompletion({
       fetchImpl,
       chatCompletionsUrl(baseUrl),
       { method: 'POST', headers: authHeaders(provider, apiKey), body: JSON.stringify(body) },
-      timeoutMs,
+      budget,
     );
   } catch (error) {
     return { ok: false, error: describeTransportError(error, { provider, baseUrl }) };

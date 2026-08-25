@@ -24,8 +24,12 @@ const MODEL = process.env.GEV_AGENT_MODEL || '';
 const COMMAND = process.env.COMMAND || 'switch to night vision';
 const SHOT = process.env.SHOT || 'qa-shots/agent-panel.png';
 
-/** A local model can spend a long time on prompt processing plus reasoning. */
-const COMMAND_TIMEOUT_MS = 300_000;
+/**
+ * A local model can spend a long time on a cold load plus prompt processing.
+ * Deliberately ABOVE the server's own local budget so the server's diagnostic
+ * error surfaces in the transcript instead of this wait expiring first.
+ */
+const COMMAND_TIMEOUT_MS = 360_000;
 
 const failures = [];
 const check = (label, condition, detail = '') => {
@@ -86,8 +90,25 @@ try {
   check('unconfigured providers name their env var', Boolean(unconfigured), unconfigured?.label || 'none unconfigured');
 
   console.log(`\nModels (${PROVIDER})`);
-  await page.select('#agent-provider', PROVIDER);
+  // Re-selecting the provider that is ALREADY selected still fires `change`,
+  // which reloads the model list and empties the select. Submitting into that
+  // window is exactly what the panel now refuses, so only switch when the
+  // selection actually differs, and then wait for the reload to start before
+  // waiting for it to finish.
+  const alreadySelected = await page.evaluate(() => document.getElementById('agent-provider')?.value);
+  if (alreadySelected !== PROVIDER) {
+    await page.select('#agent-provider', PROVIDER);
+    await page.waitForFunction(
+      () => document.getElementById('agent-panel')?.dataset.agentStatus === 'thinking',
+      { timeout: 20_000 },
+    ).catch(() => {});
+  }
   await waitForSettled();
+  // The panel only re-enables input once a usable model is actually selected.
+  await page.waitForFunction(
+    () => document.getElementById('agent-model')?.value && !document.getElementById('agent-input')?.disabled,
+    { timeout: 30_000 },
+  ).catch(() => {});
   const models = await page.evaluate(() => ({
     count: document.querySelectorAll('#agent-model option').length,
     selected: document.getElementById('agent-model')?.value,
@@ -163,6 +184,7 @@ try {
   if (consoleErrors.length !== agentErrors.length) {
     console.log(`  [note] ignored ${consoleErrors.length - agentErrors.length} unrelated layer/tile errors`);
   }
+  console.log('  agent API calls:', agentCalls.map((c) => `${c.path} ${c.status}`).join(' | ') || 'none');
   const failedCalls = agentCalls.filter((call) => call.status >= 400);
   check('no failed agent API calls', failedCalls.length === 0,
     failedCalls.map((call) => `${call.path} ${call.status}`).join(', '));

@@ -1,0 +1,68 @@
+# God's Eye View with a local model sidecar.
+#
+#   docker compose up -d          # app + Ollama
+#   docker compose --profile hosted up -d   # app only, for OpenAI/OpenRouter
+#
+# Then pull a tool-capable model once:
+#   docker compose exec ollama ollama pull qwen3:4b
+#
+# Open http://localhost:4173.
+
+services:
+  gev:
+    build: .
+    # Loopback only. The server brokers every configured API key, so anyone who
+    # can reach this port can spend the operator's quota. Change to
+    # "4173:4173" only on a network you trust, and set the GEV_RATELIMIT_*
+    # throttles in .env when you do.
+    ports:
+      - "127.0.0.1:4173:4173"
+    # Optional so `docker compose config` works before the operator has copied
+    # .env.example. The app still needs GOOGLE_MAPS_API_KEY to start.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Reach the sidecar over the compose network, not localhost: inside this
+      # container localhost is the container itself.
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      GEV_AGENT_PROVIDER: ${GEV_AGENT_PROVIDER:-ollama}
+      GEV_AGENT_MODEL_OLLAMA: ${GEV_AGENT_MODEL_OLLAMA:-qwen3:4b}
+    volumes:
+      # Survives restarts so the TomTom budget counter and cached TLEs are not
+      # re-fetched, and the daily allowance is not re-spent.
+      - gev-cache:/app/.gev-cache
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    # The GPU belongs HERE, not on the app container. An LLM needs only the
+    # default compute,utility driver capabilities; it does not need the
+    # graphics/display capabilities that in-container WebGL would require.
+    gpus: all
+    environment:
+      # The single most important setting in this file. The app sends a
+      # ~11,300-token prefix (operating manual plus 28 tool schemas) on every
+      # request. Ollama's stock window is 4096, which truncates the tool list
+      # and makes the model improvise malformed calls while still returning
+      # HTTP 200. Measured on an 8 GB card with qwen3:4b:
+      #   4096  (default) -> prefix truncated, tool calling broken
+      #   16384           -> 5.4 GB, 100% GPU, correct tool calls
+      #   32768           -> 8.0 GB, 18% spilled to CPU, unusably slow
+      # Raise this only if you have the VRAM headroom to keep 100% on GPU.
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
+      # Keep the model resident; a cold reload costs many seconds per command.
+      OLLAMA_KEEP_ALIVE: 24h
+    volumes:
+      - ollama:/root/.ollama
+    # Not published to the host by default: the app reaches it over the compose
+    # network. Uncomment to use the same daemon from your host tooling.
+    # ports:
+    #   - "127.0.0.1:11434:11434"
+    restart: unless-stopped
+
+volumes:
+  gev-cache:
+  ollama:

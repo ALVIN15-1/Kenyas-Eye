@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.env
+*.log
+screenshots/
+qa-shots/
+output/
+.gev-logs/
+.gev-cache/
+.gstack/
+3d-models/
+# 68 MB of documentation GIFs never reach the running server.
+docs/media/
