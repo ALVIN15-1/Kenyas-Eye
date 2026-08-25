@@ -263,35 +263,29 @@ See [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md) for the authoritative runti
 
 ## 🆓 No billing account?
 
-The photorealistic globe has two routes to the same Google mesh, and only one
-of them needs a billing-enabled Google Cloud account:
+The photorealistic globe has two routes to the same Google mesh, and only one of
+them needs a billing-enabled Google Cloud account:
 
 | Route | Credential | Geocoding | Allowance |
 |---|---|---|---|
 | **Google Map Tiles API** | `GOOGLE_MAPS_API_KEY` 🔴 | ✅ place search + reverse | 1,000 root tiles/month free, then metered |
 | **Cesium ion** | `CESIUM_ION_TOKEN` 🟡 | ❌ unavailable | ion's free Community allowance |
 
-CesiumJS streams an ion-hosted copy of the same tileset whenever no Google key
-is configured, and ion's free tier includes an allowance of those root tiles.
-So **an ion token alone gets you the photorealistic planet with no card**.
+CesiumJS streams an ion-hosted copy of the same tileset whenever no Google key is
+configured, and ion's free tier includes an allowance of those root tiles. So
+**an ion token alone gets you the photorealistic planet with no card**:
 
 ```bash
 # .env — no Google Cloud account at all
 CESIUM_ION_TOKEN=your_ion_token_here
 ```
 
-What you give up is **geocoding**: ion does not resell Google's Geocoding API,
-so search-by-name and reverse geocoding are unavailable. The bundled city
-presets use fixed coordinates and still work, as does everything else. Set a
-Google key and it takes over automatically.
+What you give up is **geocoding**: ion does not resell Google's Geocoding API, so
+search-by-name and reverse geocoding are unavailable. The bundled city presets
+use fixed coordinates and still work, as does every live layer. Add a Google key
+later and it takes over automatically.
 
-Verify which route your install took with `npm run qa:tileset-route`, or read
-the `[Init]` line in the browser console.
-
-> [!NOTE]
-> ion's free Community tier is for personal and non-commercial use, with
-> exploratory commercial evaluation permitted. Check the current terms if that
-> matters for your deployment.
+🗺️ **[Map credentials reference](docs/MAP-CREDENTIALS.md)** — both routes step by step, token scoping, costs, and the caching terms
 
 ---
 

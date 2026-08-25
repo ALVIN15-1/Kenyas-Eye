@@ -1560,7 +1560,8 @@ Use docs in this order when details conflict:
 
 1. `docs/CURRENT-STATE.md` (this file)
 2. `docs/opensky-auth.md` (OpenSky authentication)
-3. `CHANGELOG.md` (release history)
+3. `docs/MAP-CREDENTIALS.md` (Google vs Cesium ion tileset routes)
+4. `CHANGELOG.md` (release history)
 
 Historical planning documents may not match runtime behavior.
 
