@@ -2610,8 +2610,11 @@ Replay transport uses one Play/Pause toggle plus Cancel. During ascent only the 
   Defaults to the Ollama provider because it needs no credential.
 - `scripts/qa-tileset-route.mjs`: proves which upstream serves the
   photorealistic tileset (`GEV_URL=... EXPECT=ion|google|none npm run
-  qa:tileset-route`). Asserts at the network layer because the ion fallback is
-  invisible in the UI; a dummy ion token is sufficient to prove the routing.
+  qa:tileset-route`). Asserts at the network layer because the route is
+  invisible in the UI. ion brokers access and returns a Google key, so tile
+  payloads stream from `tile.googleapis.com` on BOTH routes; the discriminator
+  is the `api.cesium.com/v1/assets/<id>/endpoint` request. A dummy ion token
+  proves only that ion is consulted, not that tiles arrive.
 - `scripts/qa-l9-matrix.mjs`: the L9 release-candidate QA matrix in one command
   (`node scripts/qa-l9-matrix.mjs --url http://localhost:4173`). Orchestrates
   the `qa-*.mjs` fleet plus `track-regression` as subprocesses and adds

@@ -142,6 +142,14 @@ container created during a failed bind keeps no port mapping — recreate it:
 docker compose up -d --force-recreate gev
 ```
 
+**Edited `.env` but the app still sees the old values**
+`docker compose restart` reuses the container's existing environment and never
+re-reads `env_file`. Recreate instead:
+
+```bash
+docker compose up -d --force-recreate gev
+```
+
 **Code changes not taking effect**
 Confirm the bind mounts are present (`docker compose config`). Changes to
 `package.json` or dependencies still need `docker compose up -d --build`.

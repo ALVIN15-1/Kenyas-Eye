@@ -179,12 +179,29 @@ GEV_URL=http://localhost:4173 EXPECT=ion npm run qa:tileset-route
 ```
 
 `EXPECT` accepts `ion`, `google`, or `none`. The check asserts at the **network
-layer**, because the fallback is invisible in the UI: on the ion route nothing
-may be requested from `tile.googleapis.com`.
+layer**, because the route is invisible in the UI.
 
-A dummy ion token is enough to prove the routing — the request reaches ion and is
-rejected there rather than going to Google. A valid token is only needed to prove
-tiles actually arrive.
+### How ion actually serves the tiles
+
+ion does not rehost the mesh. It brokers access and hands back a Google key.
+Observed against a real token, the ion route is:
+
+```
+1. api.cesium.com/v1/assets/2275207/endpoint?access_token=<your ion token>
+2. tile.googleapis.com/v1/3dtiles/root.json?key=<key ION supplied>
+3. tile.googleapis.com/v1/3dtiles/datasets/...        ← the tile payloads
+```
+
+Steps 2 and 3 are **identical on both routes**; the tiles come from Google's CDN
+either way. Only step 1 tells them apart, which is why the QA check keys on the
+ion asset request and deliberately does *not* assert that Google went
+uncontacted.
+
+> [!NOTE]
+> A dummy ion token is enough to prove step 1 happens, but not that tiles arrive
+> — it fails at step 1, so Google is never reached. Any check written against a
+> dummy token that asserts "Google was not contacted" passes for the wrong
+> reason. Verify the full path with a real token.
 
 Or read the `[Init]` line in the browser console.
 

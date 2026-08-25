@@ -3,9 +3,13 @@
 //
 // There are two routes to the same Google mesh. The direct one uses a Google
 // Maps key against the Map Tiles API. The other goes through Cesium ion, which
-// resells it: CesiumJS falls back to an ion-hosted tileset whenever
-// `GoogleMaps.defaultApiKey` is undefined, and ion's free Community tier
-// includes an allowance of those root tiles.
+// resells access: CesiumJS requests an ion asset whenever
+// `GoogleMaps.defaultApiKey` is undefined, ion authorizes it and returns a
+// Google key of its own, and the tiles then stream from Google either way.
+// ion's free Community tier includes an allowance of those root requests.
+//
+// So "the ion route" means ion brokered the authorization, NOT that Google went
+// uncontacted — the tile payloads come from tile.googleapis.com on both paths.
 //
 // That second route matters because it removes the project's only hard
 // requirement for a billing-enabled Google Cloud account. It only works if we
