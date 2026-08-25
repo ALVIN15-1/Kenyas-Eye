@@ -94,6 +94,12 @@ Open **`http://localhost:4173`**.
 - The Overpass / military-installations disk cache (7–30 day TTLs) lives in the `gev-cache` volume and survives restarts.
 - `GOOGLE_MAPS_API_KEY` and `CESIUM_ION_TOKEN` are injected into the client bundle at **build** time — rebuild after changing either: `docker compose build --no-cache && docker compose up -d`. Every other key is read at runtime, so a plain restart picks it up.
 - Image is ~830 MB (Node 24 + the full dependency tree; the puppeteer Chrome download is skipped at build time).
+- **Self-hosted voice alternative:** add the LiveKit overlay to replace OpenAI Realtime with LiveKit + local OpenAI-compatible STT/LLM/TTS services:
+  ```bash
+  npm run livekit:tools
+  docker compose -f docker-compose.yml -f docker-compose.livekit.yml up -d --build
+  ```
+  See [`livekit-voice/README.md`](livekit-voice/README.md) for model choices, GPU notes, and the browser tool bridge.
 - The container binds `0.0.0.0` internally and publishes 4173 on the host — same key-brokering trust model as `HOST=0.0.0.0` in [Keys & Costs](#-api-keys). Don't expose it beyond a network you trust.
 
 ---

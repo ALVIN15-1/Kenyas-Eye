@@ -1,0 +1,68 @@
+name: gods-eye-view-livekit
+
+services:
+  gods-eye-view:
+    environment:
+      VITE_VOICE_BACKEND: livekit
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_PUBLIC_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      GEV_LIVEKIT_ROOM_PREFIX: ${GEV_LIVEKIT_ROOM_PREFIX:-gev-voice}
+    depends_on:
+      livekit:
+        condition: service_started
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml --dev
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ./livekit-voice/livekit.yaml:/etc/livekit.yaml:ro
+
+  livekit-agent:
+    build:
+      context: .
+      dockerfile: livekit-voice/Dockerfile
+    env_file:
+      - ./livekit-voice/.env.example
+    environment:
+      LIVEKIT_URL: ws://livekit:7880
+    depends_on:
+      livekit:
+        condition: service_started
+      ollama:
+        condition: service_started
+      whisper:
+        condition: service_started
+      tts:
+        condition: service_started
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    environment:
+      ASR_MODEL: ${GEV_LIVEKIT_STT_MODEL:-small}
+      ASR_ENGINE: faster_whisper
+    ports:
+      - "9000:9000"
+
+  tts:
+    image: ghcr.io/matatonic/openedai-speech:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - openedai-speech:/app/voices
+
+volumes:
+  ollama:
+  openedai-speech:
