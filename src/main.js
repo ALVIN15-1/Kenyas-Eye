@@ -21,6 +21,12 @@ import { SceneDirector } from './scenes/director.js';
 import { initGevVoiceCommands } from './voice/gevRealtime.js';
 import { createGevActionRunner } from './voice/gevActions.js';
 import { mountAgentPanel } from './agent/agentPanel.js';
+import {
+  canLoadPhotorealistic,
+  describeTilesetRoute,
+  missingCredentialsError,
+  resolveTilesetRoute,
+} from './mapCredentials.js';
 import { MapStackController } from './mapStackController.js';
 import { initAnnotations } from './annotations/index.js';
 import { initLogoGaze } from './logoGaze.js';
@@ -81,15 +87,25 @@ async function init() {
       Cesium.Ion.defaultAccessToken = cesiumToken;
     }
 
-    // Set Google Maps API key for 3D Tiles
-    const googleApiKey = import.meta.env.GOOGLE_MAPS_API_KEY;
-    if (!googleApiKey) {
-      throw new Error('GOOGLE_MAPS_API_KEY not found. Set it as an environment variable.');
+    // Photorealistic 3D Tiles: direct with a Google key, otherwise through
+    // Cesium ion, which resells the same mesh. Either credential is enough.
+    const mapRoute = resolveTilesetRoute({
+      googleApiKey: import.meta.env.GOOGLE_MAPS_API_KEY,
+      cesiumToken,
+    });
+    if (!canLoadPhotorealistic(mapRoute)) {
+      throw missingCredentialsError();
     }
-    Cesium.GoogleMaps.defaultApiKey = googleApiKey;
+    console.info('[Init]', describeTilesetRoute(mapRoute));
 
-    // Expose API key globally for geocoding in locations.js
-    window.__GOOGLE_MAPS_API_KEY__ = googleApiKey;
+    // Assigning this AT ALL — even an empty string — sends tile requests to
+    // Google directly. It must stay undefined for Cesium's ion fallback to
+    // engage, so the ion route deliberately leaves it and the geocoding global
+    // unset; both geocoders already treat a missing key as unavailable.
+    if (mapRoute.googleApiKey) {
+      Cesium.GoogleMaps.defaultApiKey = mapRoute.googleApiKey;
+      window.__GOOGLE_MAPS_API_KEY__ = mapRoute.googleApiKey;
+    }
 
     // Create the Cesium viewer with minimal chrome
     const viewer = new Cesium.Viewer('cesiumContainer', {

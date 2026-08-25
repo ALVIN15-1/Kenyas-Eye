@@ -1560,10 +1560,11 @@ Use docs in this order when details conflict:
 
 1. `docs/CURRENT-STATE.md` (this file)
 2. `docs/opensky-auth.md` (OpenSky authentication)
-3. `docs/TEXT-AGENT.md` (typed agent: providers, tool loop, configuration)
-4. `docs/LOCAL-MODELS.md` (Ollama: context window, model choice, VRAM)
-5. `docs/DOCKER.md` (container stack and GPU sidecar)
-6. `CHANGELOG.md` (release history)
+3. `docs/MAP-CREDENTIALS.md` (Google vs Cesium ion tileset routes)
+4. `docs/TEXT-AGENT.md` (typed agent: providers, tool loop, configuration)
+5. `docs/LOCAL-MODELS.md` (Ollama: context window, model choice, VRAM)
+6. `docs/DOCKER.md` (container stack and GPU sidecar)
+7. `CHANGELOG.md` (release history)
 
 Historical planning documents may not match runtime behavior.
 
@@ -1575,7 +1576,14 @@ Historical planning documents may not match runtime behavior.
 
 ## Runtime Stack
 
-- Vite + CesiumJS app with Google Photorealistic 3D Tiles
+- Vite + CesiumJS app with Google Photorealistic 3D Tiles, authorized by EITHER
+  `GOOGLE_MAPS_API_KEY` (direct to the Map Tiles API) or `CESIUM_ION_TOKEN`
+  (CesiumJS streams an ion-hosted copy whenever `GoogleMaps.defaultApiKey` is
+  left undefined). Resolved in `src/mapCredentials.js`; the Google key wins when
+  both are set. The ion route loses Google geocoding, so place-name search and
+  reverse geocoding report unavailable while fixed-coordinate city presets still
+  work. Startup fails only when NEITHER credential is present. Route is asserted
+  at the network layer by `scripts/qa-tileset-route.mjs`.
 - Scene/HUD/style systems in `src/ui.js` and `src/hud.js`
 - Layer management in `src/data/manager.js`
 - Map stack switching in `src/mapStackController.js`
@@ -2600,6 +2608,10 @@ Replay transport uses one Play/Pause toggle plus Cancel. During ascent only the 
   endpoints, and one typed command carried through the tool loop to a real
   state change (`GEV_URL=http://localhost:4173 npm run qa:agent-panel`).
   Defaults to the Ollama provider because it needs no credential.
+- `scripts/qa-tileset-route.mjs`: proves which upstream serves the
+  photorealistic tileset (`GEV_URL=... EXPECT=ion|google|none npm run
+  qa:tileset-route`). Asserts at the network layer because the ion fallback is
+  invisible in the UI; a dummy ion token is sufficient to prove the routing.
 - `scripts/qa-l9-matrix.mjs`: the L9 release-candidate QA matrix in one command
   (`node scripts/qa-l9-matrix.mjs --url http://localhost:4173`). Orchestrates
   the `qa-*.mjs` fleet plus `track-regression` as subprocesses and adds
