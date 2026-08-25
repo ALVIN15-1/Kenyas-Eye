@@ -78,6 +78,7 @@ import {
 import { indexToolsByName, prepareToolCall, toChatCompletionTools } from './src/agent/toolSchema.js';
 import { buildRequestMessages, toolResultMessage } from './src/agent/conversation.js';
 import { fetchModels, requestChatCompletion } from './src/agent/upstream.js';
+import { diagnoseTurn } from './src/agent/diagnostics.js';
 
 /** Resolve __dirname for ESM context. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -5398,6 +5399,27 @@ function textAgentProxy() {
             provider: resolved.provider.id,
           });
           return;
+        }
+
+        // A truncated tool prefix returns HTTP 200 with a plausible answer, so
+        // the only evidence is the prompt token count. Checked on the FIRST
+        // turn only: correction turns legitimately carry a different shape.
+        if (!corrections.length) {
+          const diagnosis = diagnoseTurn({
+            usage: completion.usage,
+            message: completion.message,
+            provider: resolved.provider,
+            model: completion.model,
+          });
+          if (!diagnosis.ok) {
+            sendJson(res, 502, {
+              error: diagnosis.error,
+              remedy: diagnosis.remedy,
+              promptTokens: diagnosis.promptTokens,
+              provider: resolved.provider.id,
+            });
+            return;
+          }
         }
 
         const rawCalls = Array.isArray(completion.message?.tool_calls) ? completion.message.tool_calls : [];
