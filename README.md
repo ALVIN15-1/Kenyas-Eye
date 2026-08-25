@@ -79,6 +79,25 @@ The dev server binds to **localhost** — your keys stay on your machine. Sharin
 
 ---
 
+## 🐳 Docker
+
+Prefer a container over a Node install? It's one service — the app and all its API proxies are a single Node process, so there's nothing else to orchestrate:
+
+```bash
+cp .env.example .env   # set GOOGLE_MAPS_API_KEY (plus any others you want)
+docker compose up -d --build
+```
+
+Open **`http://localhost:4173`**.
+
+- **Runs the dev server on purpose.** 18 of the 20 API proxy middlewares register via `configureServer()` only, so `vite preview` would silently serve an SPA with most data layers dead. `npm run dev` in the container is the supported mode.
+- The Overpass / military-installations disk cache (7–30 day TTLs) lives in the `gev-cache` volume and survives restarts.
+- `GOOGLE_MAPS_API_KEY` and `CESIUM_ION_TOKEN` are injected into the client bundle at **build** time — rebuild after changing either: `docker compose build --no-cache && docker compose up -d`. Every other key is read at runtime, so a plain restart picks it up.
+- Image is ~830 MB (Node 24 + the full dependency tree; the puppeteer Chrome download is skipped at build time).
+- The container binds `0.0.0.0` internally and publishes 4173 on the host — same key-brokering trust model as `HOST=0.0.0.0` in [Keys & Costs](#-api-keys). Don't expose it beyond a network you trust.
+
+---
+
 ## 🕐 The First Five Minutes
 
 No account, no signup. The first-run card will offer to stage a mission for you — or run this gauntlet yourself. Somewhere in these five minutes it stops feeling like a demo:

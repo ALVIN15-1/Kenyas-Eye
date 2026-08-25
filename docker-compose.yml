@@ -1,0 +1,24 @@
+services:
+  gods-eye-view:
+    build: .
+    image: gods-eye-view:latest
+    container_name: gods-eye-view
+    ports:
+      - "4173:4173"
+    env_file:
+      # Copy .env.example to .env and fill in keys.
+      # Keys stay server-side except GOOGLE_MAPS_API_KEY / CESIUM_ION_TOKEN,
+      # which are injected into the client bundle at BUILD time — rebuild the
+      # image after changing those two.
+      - .env
+    environment:
+      # Bind inside the container; compose publishes 4173 on the host.
+      HOST: 0.0.0.0
+      PORT: "4173"
+    volumes:
+      # Persists the Overpass / military-installation disk cache (7-30 day TTLs)
+      - gev-cache:/app/.gev-cache
+    restart: unless-stopped
+
+volumes:
+  gev-cache:
