@@ -36,6 +36,25 @@ import { initFirstRunExperience } from './firstRunExperience.js';
 initLogoGaze();
 
 /**
+ * Cesium ion's mirror of Google Photorealistic 3D Tiles, served under Cesium's
+ * own Google Maps Platform contract. The direct `createGooglePhotorealistic3DTileset`
+ * path 403s for any project on an EEA billing account (Google's EEA-specific
+ * terms, effective 8 July 2025), and that restriction follows the billing
+ * address rather than the requester — so this asset serves where the direct
+ * call does not. Same imagery, same Google terms, different contracting party.
+ * @see https://developers.google.com/maps/comms/eea/map-tiles
+ */
+const GOOGLE_PHOTOREAL_ION_ASSET_ID = 2275207;
+
+/**
+ * Cesium OSM Buildings: ~350M extruded building footprints derived from
+ * OpenStreetMap, free with any ion token. Shown only on globe stacks — the
+ * photoreal tileset already carries its own photogrammetric buildings, and
+ * drawing both puts grey boxes inside the real ones.
+ */
+const OSM_BUILDINGS_ION_ASSET_ID = 96188;
+
+/**
  * Extract a human-readable error message from any thrown value.
  * Handles Error objects, strings, and plain objects with message/error fields.
  * @param {*} error — caught exception value
@@ -165,17 +184,48 @@ async function init() {
       // Google Photorealistic 3D Tiles provide their own terrain/elevation.
       viewer.scene.globe.show = false;
     } catch (tileError) {
-      console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
-      const tileErrorDetail = describeError(tileError);
-      loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
-      // Keep Cesium globe visible as fallback instead of aborting the app.
-      viewer.scene.globe.show = true;
+      // EEA fallback. Since 8 July 2025 Google refuses Photorealistic 3D Tiles
+      // to projects on an EEA billing account, so the direct call above 403s for
+      // every developer in the EU, Iceland, Liechtenstein or Norway however
+      // correct their key is. Cesium ion resells the same tileset under its own
+      // (non-EEA) Google contract as asset 2275207, and that path does serve —
+      // verified from Hungary, 2026-08-25. Needs a Cesium ion token.
+      console.warn('[Init] Google 3D Tiles direct path unavailable, trying Cesium ion:', tileError);
+      try {
+        if (!cesiumToken) throw new Error('no Cesium ion token configured');
+        tileset = await Cesium.Cesium3DTileset.fromIonAssetId(GOOGLE_PHOTOREAL_ION_ASSET_ID);
+        viewer.scene.primitives.add(tileset);
+        viewer.scene.globe.show = false;
+        console.info('[Init] Google 3D Tiles loaded via Cesium ion asset', GOOGLE_PHOTOREAL_ION_ASSET_ID);
+      } catch (ionError) {
+        console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', ionError);
+        const tileErrorDetail = describeError(ionError);
+        loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
+        // Keep Cesium globe visible as fallback instead of aborting the app.
+        viewer.scene.globe.show = true;
+      }
+    }
+
+    // Cesium OSM Buildings, hidden until a globe stack is active. Failure here
+    // is cosmetic: the aerial stacks still render, just flat.
+    let osmBuildingsTileset = null;
+    if (cesiumToken) {
+      try {
+        osmBuildingsTileset = await Cesium.Cesium3DTileset.fromIonAssetId(
+          OSM_BUILDINGS_ION_ASSET_ID,
+        );
+        osmBuildingsTileset.show = false;
+        viewer.scene.primitives.add(osmBuildingsTileset);
+      } catch (buildingsError) {
+        console.warn('[Init] Cesium OSM Buildings unavailable:', buildingsError);
+      }
     }
 
     loaderStatus.textContent = 'Initializing systems...';
 
     const mapStackController = new MapStackController(viewer, {
       googleTileset: tileset,
+      osmBuildingsTileset,
       cesiumToken,
       initialStack: tileset ? 'photoreal' : 'osm',
       // Task 5 (height-datum fix): rebroadcast stack changes as a window

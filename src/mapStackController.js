@@ -52,6 +52,9 @@ const REEARTH_TERRAIN_URL = 'https://terrain.reearth.land/cesium-mesh/ellipsoid'
 export class MapStackController {
   constructor(viewer, {
     googleTileset = null,
+    // Cesium OSM Buildings, or null when no ion token is configured. Owned by
+    // the caller; this class only toggles `show`, mirroring googleTileset.
+    osmBuildingsTileset = null,
     cesiumToken = '',
     initialStack = 'photoreal',
     onChange = null,
@@ -59,6 +62,7 @@ export class MapStackController {
   } = {}) {
     this.viewer = viewer;
     this.googleTileset = googleTileset;
+    this.osmBuildingsTileset = osmBuildingsTileset;
     this.cesiumToken = String(cesiumToken || '').trim();
     this._onChange = onChange;
     this._onError = onError;
@@ -218,6 +222,9 @@ export class MapStackController {
   async _activatePhotoreal(gen) {
     this._removeImageryLayer();
     if (this.googleTileset) this.googleTileset.show = true;
+    // Photoreal already carries real buildings; leaving the OSM boxes on would
+    // bury grey extrusions inside the photogrammetry.
+    if (this.osmBuildingsTileset) this.osmBuildingsTileset.show = false;
     this.viewer.scene.globe.show = false;
     // Terrain is left UNTOUCHED here. The photoreal globe is hidden
     // (`globe.show = false`), so the terrain provider is inert — it renders and
@@ -244,6 +251,9 @@ export class MapStackController {
     this.viewer.imageryLayers.add(this._imageryLayer, 0);
 
     if (this.googleTileset) this.googleTileset.show = false;
+    // Extruded OSM buildings stand in for the photogrammetry the photoreal
+    // stack would have supplied — without them an aerial stack is a flat photo.
+    if (this.osmBuildingsTileset) this.osmBuildingsTileset.show = true;
     this.viewer.scene.globe.show = true;
     await this._setWorldTerrainEnabled(!!this.cesiumToken, gen);
   }
