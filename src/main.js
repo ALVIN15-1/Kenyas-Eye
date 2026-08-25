@@ -24,8 +24,10 @@ import { mountAgentPanel } from './agent/agentPanel.js';
 import {
   canLoadPhotorealistic,
   describeTilesetRoute,
+  ionRetryRoute,
   missingCredentialsError,
   resolveTilesetRoute,
+  shouldRetryViaIon,
 } from './mapCredentials.js';
 import { MapStackController } from './mapStackController.js';
 import { initAnnotations } from './annotations/index.js';
@@ -183,11 +185,39 @@ async function init() {
       // Google Photorealistic 3D Tiles provide their own terrain/elevation.
       viewer.scene.globe.show = false;
     } catch (tileError) {
-      console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
-      const tileErrorDetail = describeError(tileError);
-      loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
-      // Keep Cesium globe visible as fallback instead of aborting the app.
-      viewer.scene.globe.show = true;
+      console.warn('[Init] Google 3D Tiles unavailable:', tileError);
+      let recovered = false;
+
+      // A Google key can be valid for geocoding and blocked for Map Tiles
+      // (API_KEY_SERVICE_BLOCKED). Falling straight to the plain globe would
+      // then make adding a key WORSE than having none, so try ion before
+      // giving up on a photorealistic planet.
+      if (shouldRetryViaIon(mapRoute)) {
+        const retry = ionRetryRoute(mapRoute);
+        console.info('[Init] Retrying via Cesium ion:', describeTilesetRoute(retry));
+        loaderStatus.textContent = 'Google 3D Tiles unavailable. Retrying via Cesium ion...';
+        // Clearing this is what makes CesiumJS take the ion path; the geocoding
+        // global is deliberately left in place.
+        Cesium.GoogleMaps.defaultApiKey = undefined;
+        try {
+          tileset = await Cesium.createGooglePhotorealistic3DTileset({
+            onlyUsingWithGoogleGeocoder: true,
+          });
+          viewer.scene.primitives.add(tileset);
+          viewer.scene.globe.show = false;
+          recovered = true;
+          console.info('[Init] Photorealistic globe recovered through Cesium ion.');
+        } catch (ionError) {
+          console.warn('[Init] Cesium ion retry also failed:', ionError);
+        }
+      }
+
+      if (!recovered) {
+        const tileErrorDetail = describeError(tileError);
+        loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
+        // Keep Cesium globe visible as fallback instead of aborting the app.
+        viewer.scene.globe.show = true;
+      }
     }
 
     loaderStatus.textContent = 'Initializing systems...';

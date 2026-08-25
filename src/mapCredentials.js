@@ -79,9 +79,15 @@ export function describeTilesetRoute(resolved) {
     return 'Photorealistic 3D Tiles via the Google Map Tiles API.';
   }
   if (resolved?.route === TILESET_ROUTE.ION) {
-    return 'Photorealistic 3D Tiles via Cesium ion (no Google Maps key set). '
-      + 'Place-name search and reverse geocoding are unavailable on this route, '
-      + 'and ion applies its own monthly root-tile allowance.';
+    // Geocoding is reported from the resolved route, not assumed from it: after
+    // a retry the Google key is still configured for the Geocoding API even
+    // though it was withheld from the tile request, so claiming search is gone
+    // would be simply untrue.
+    const geocoding = resolved.geocodingAvailable
+      ? 'Place-name search still uses the configured Google key. '
+      : 'Place-name search and reverse geocoding are unavailable on this route. ';
+    return `Photorealistic 3D Tiles via Cesium ion. ${geocoding}`
+      + 'ion applies its own monthly root-tile allowance.';
   }
   return 'No photorealistic globe: set GOOGLE_MAPS_API_KEY, or CESIUM_ION_TOKEN to route through Cesium ion.';
 }
@@ -92,4 +98,45 @@ export function missingCredentialsError() {
     'No map credentials found. Set GOOGLE_MAPS_API_KEY for the Google Map Tiles API, '
     + 'or CESIUM_ION_TOKEN to stream the same tiles through Cesium ion.',
   );
+}
+
+/**
+ * Whether a failed Google tileset load is worth retrying through Cesium ion.
+ *
+ * A Google key can be valid for one API and blocked for another: enabling the
+ * Map Tiles API but leaving it off a key's API-restrictions list yields
+ * `API_KEY_SERVICE_BLOCKED`, which is indistinguishable from a missing key as
+ * far as the globe is concerned. Observed in the field with a key that
+ * geocoded perfectly while every tile request 403'd.
+ *
+ * Without this the app drops to the plain Cesium globe even when a working ion
+ * token is sitting right there, so adding a Google key could make the globe
+ * WORSE than having none at all.
+ *
+ * @param {object} resolved Result of resolveTilesetRoute.
+ * @returns {boolean} True when the ion route is available and untried.
+ */
+export function shouldRetryViaIon(resolved) {
+  return resolved?.route === TILESET_ROUTE.GOOGLE && Boolean(resolved.cesiumToken);
+}
+
+/**
+ * The route to use for that retry.
+ *
+ * Drops the Google key so `GoogleMaps.defaultApiKey` can be cleared, which is
+ * the only thing that makes CesiumJS take the ion path. Geocoding is unaffected
+ * — it reads its own global, which the caller leaves in place.
+ *
+ * @param {object} resolved Result of resolveTilesetRoute.
+ * @returns {object} An ion-route descriptor.
+ */
+export function ionRetryRoute(resolved) {
+  return {
+    route: TILESET_ROUTE.ION,
+    googleApiKey: null,
+    cesiumToken: resolved?.cesiumToken ?? null,
+    // Geocoding survives the retry: the Google key stays configured for the
+    // Geocoding API even though it is withheld from the tile request.
+    geocodingAvailable: Boolean(resolved?.googleApiKey),
+  };
 }

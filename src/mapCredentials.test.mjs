@@ -10,12 +10,15 @@
 // look like an unrelated tile error.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   TILESET_ROUTE,
   canLoadPhotorealistic,
   describeTilesetRoute,
+  ionRetryRoute,
   missingCredentialsError,
   resolveTilesetRoute,
+  shouldRetryViaIon,
 } from './mapCredentials.js';
 
 test('a Google key takes the direct route', () => {
@@ -68,11 +71,19 @@ test('canLoadPhotorealistic accepts both working routes', () => {
   assert.equal(canLoadPhotorealistic(undefined), false);
 });
 
-test('the ion route warns that geocoding is gone', () => {
+test('the ion route warns that geocoding is gone when it really is', () => {
   const text = describeTilesetRoute(resolveTilesetRoute({ cesiumToken: 'ion-test' }));
   assert.match(text, /Cesium ion/);
   assert.match(text, /geocoding are unavailable/i);
   assert.match(text, /allowance/i);
+});
+
+test('after an ion retry it does NOT claim search is gone, because it is not', () => {
+  const retry = ionRetryRoute(resolveTilesetRoute({ googleApiKey: 'k', cesiumToken: 't' }));
+  const text = describeTilesetRoute(retry);
+  assert.match(text, /Cesium ion/);
+  assert.match(text, /still uses the configured Google key/i);
+  assert.doesNotMatch(text, /unavailable/i, 'the key still geocodes; only tiles were blocked');
 });
 
 test('the Google route describes itself without warnings', () => {
@@ -104,9 +115,66 @@ test('main.js never assigns the Google key on the ion route', async () => {
     /if \(mapRoute\.googleApiKey\) \{\s*\n\s*Cesium\.GoogleMaps\.defaultApiKey = mapRoute\.googleApiKey;/,
     'GoogleMaps.defaultApiKey must only be assigned when a real key exists',
   );
-  assert.doesNotMatch(
-    source,
-    /^\s*Cesium\.GoogleMaps\.defaultApiKey = (?!mapRoute\.googleApiKey)/m,
-    'no other assignment path may set the key',
+  // Exactly two assignments are legitimate: the real key, and `undefined` to
+  // clear it for the ion retry. Anything else — notably an empty string —
+  // silently sends tiles back to Google and defeats the fallback.
+  const assignments = [...source.matchAll(/Cesium\.GoogleMaps\.defaultApiKey = ([^;]+);/g)]
+    .map((match) => match[1].trim());
+  assert.deepEqual(
+    assignments.filter((value) => value !== 'mapRoute.googleApiKey' && value !== 'undefined'),
+    [],
+    'the key may only be set to the resolved key or cleared to undefined',
   );
+});
+
+// ── ion retry after a blocked Google key ────────────────────────────────────
+// Observed in the field: a key that geocodes perfectly while every tile request
+// returns 403 API_KEY_SERVICE_BLOCKED, because Map Tiles was enabled on the
+// project but left off the key's API-restrictions list. Before this retry the
+// app dropped to the plain globe, so ADDING a Google key made the globe worse
+// than having none — with a working ion token sitting unused.
+
+test('a blocked Google key retries through ion when a token exists', () => {
+  const resolved = resolveTilesetRoute({ googleApiKey: 'AIza-blocked', cesiumToken: 'ion-test' });
+  assert.equal(shouldRetryViaIon(resolved), true);
+});
+
+test('there is nothing to retry without an ion token', () => {
+  assert.equal(shouldRetryViaIon(resolveTilesetRoute({ googleApiKey: 'AIza-blocked' })), false);
+});
+
+test('the ion route does not retry itself', () => {
+  assert.equal(shouldRetryViaIon(resolveTilesetRoute({ cesiumToken: 'ion-test' })), false,
+    'already on ion; a retry would loop');
+  assert.equal(shouldRetryViaIon(resolveTilesetRoute({})), false);
+  assert.equal(shouldRetryViaIon(null), false);
+});
+
+test('the retry route withholds the Google key so the ion path engages', () => {
+  const resolved = resolveTilesetRoute({ googleApiKey: 'AIza-blocked', cesiumToken: 'ion-test' });
+  const retry = ionRetryRoute(resolved);
+  assert.equal(retry.route, TILESET_ROUTE.ION);
+  assert.strictEqual(retry.googleApiKey, null, 'any value here sends tiles back to Google');
+  assert.equal(retry.cesiumToken, 'ion-test');
+});
+
+test('geocoding survives the retry, because only the tile request is affected', () => {
+  const resolved = resolveTilesetRoute({ googleApiKey: 'AIza-blocked', cesiumToken: 'ion-test' });
+  assert.equal(ionRetryRoute(resolved).geocodingAvailable, true,
+    'the key still works for the Geocoding API; only Map Tiles is blocked');
+});
+
+test('the retry describes itself as the ion route', () => {
+  const retry = ionRetryRoute(resolveTilesetRoute({ googleApiKey: 'k', cesiumToken: 't' }));
+  assert.match(describeTilesetRoute(retry), /Cesium ion/);
+});
+
+test('main.js clears the Google key before retrying, and only there', () => {
+  const source = readFileSync(new URL('./main.js', import.meta.url), 'utf8');
+  assert.match(
+    source,
+    /Cesium\.GoogleMaps\.defaultApiKey = undefined;/,
+    'the retry must clear the key or CesiumJS will not take the ion path',
+  );
+  assert.match(source, /shouldRetryViaIon\(mapRoute\)/);
 });

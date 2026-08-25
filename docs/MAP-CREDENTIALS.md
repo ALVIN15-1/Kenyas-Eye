@@ -134,6 +134,33 @@ features report unavailable, and the console says so explicitly:
 
 Adding a Google key later takes over automatically with no other change.
 
+### A blocked key falls back to ion automatically
+
+A Google key can be valid for one API and blocked for another. Enabling the Map
+Tiles API on the project but leaving it off the key's **API restrictions** list
+produces:
+
+```
+403 API_KEY_SERVICE_BLOCKED
+Requests to this API tile method ... GetRootTileset are blocked.
+```
+
+Note this is a *different* error from `SERVICE_DISABLED`, which means the API
+was never enabled at all. If you see `API_KEY_SERVICE_BLOCKED`, the fix is
+Credentials → your key → **API restrictions** → add **Map Tiles API**.
+
+When that happens and a `CESIUM_ION_TOKEN` is configured, the app retries the
+tileset through ion rather than dropping to the plain Cesium globe — otherwise
+adding a Google key would make the globe *worse* than having none. **Geocoding
+is unaffected**: the key is withheld from the tile request only, so place-name
+search keeps working. The console says exactly what happened:
+
+```
+[Init] Google 3D Tiles unavailable
+[Init] Retrying via Cesium ion: ... Place-name search still uses the configured Google key.
+[Init] Photorealistic globe recovered through Cesium ion.
+```
+
 ### ion does offer geocoding, but the app does not use it
 
 Cesium ion has its own Pelias-backed geocoder at `api.cesium.com/v1/geocode`,
