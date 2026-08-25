@@ -68,6 +68,33 @@ Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 npm install
 npm run dev -- --host localhost --port 4173
 ```
+OR
+
+### 🐳 Run with Docker
+
+A pre-built image which can be run from GitHub Container Registry.
+
+run:
+
+```bash
+docker run -d \
+  --name gods-eye-view \
+  -p 4173:4173 \
+  --env-file .env \
+  ghcr.io/bilawalsidhu/gods-eye-view:latest
+```
+### Build locally
+
+To test the container locally from the repository:
+
+```bash
+docker build -t gods-eye-view:local .
+docker run --rm -d \
+  --name gods-eye-view \
+  -p 4173:4173 \
+  --env-file .env \
+  gods-eye-view:local
+```
 
 3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Live Contacts**, **Space Missions**, **Environmental** — or leaves you to explore manually.
 
@@ -77,6 +104,11 @@ The dev server binds to **localhost** — your keys stay on your machine. Sharin
 
 **macOS shortcut:** `./scripts/dev-fresh.sh` clears the Vite cache and pulls your keys straight from the Keychain.
 
+**Security:** never bake `.env` or private API keys into the Docker image.
+`OPENAI_API_KEY`, `AISSTREAM_API_KEY`, OpenSky credentials, and similar
+server-side credentials remain runtime environment variables. The Google Maps
+key and Cesium ion token are intentionally client-exposed by the application
+and should be restricted according to [SECURITY.md](SECURITY.md).
 ---
 
 ## 🕐 The First Five Minutes
