@@ -1560,7 +1560,10 @@ Use docs in this order when details conflict:
 
 1. `docs/CURRENT-STATE.md` (this file)
 2. `docs/opensky-auth.md` (OpenSky authentication)
-3. `CHANGELOG.md` (release history)
+3. `docs/TEXT-AGENT.md` (typed agent: providers, tool loop, configuration)
+4. `docs/LOCAL-MODELS.md` (Ollama: context window, model choice, VRAM)
+5. `docs/DOCKER.md` (container stack and GPU sidecar)
+6. `CHANGELOG.md` (release history)
 
 Historical planning documents may not match runtime behavior.
 

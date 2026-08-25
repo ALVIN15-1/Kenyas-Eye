@@ -182,43 +182,28 @@ The model picker populates itself from whichever provider you select, so pulling
 
 **Cost.** Typed commands are dramatically cheaper than voice, because audio tokens are what cost money. A command runs roughly **$0.0002 to $0.0008** on a small hosted model, against roughly **$0.10 to $0.30 per minute** of open-mic voice. On Ollama it is free.
 
-### The AI HUD summary rides along
-
-The five-word `SUMMARY` readout on the HUD uses the same providers. It follows
-whatever the agent is set to, so pointing the agent at Ollama takes the summary
-local too — which matters more than the cost: it otherwise posts your live
-coordinates, street names, and active layers to a hosted provider every 15
-seconds. Override with `GEV_HUD_PROVIDER` / `GEV_HUD_MODEL`.
-
-> [!IMPORTANT]
-> **Use a non-reasoning model for the summary.** A reasoning model spends its
-> entire output budget thinking about a five-word answer and returns nothing —
-> measured with `qwen3:4b`, still thinking at 1024 tokens after 86 seconds.
-> `llama3.2:3b` or `qwen2.5:3b` answer in one shot. The app detects the
-> overflow and names the remedy rather than showing a blank readout.
-
-### Running the agent locally
+### Running it locally
 
 ```bash
-docker compose up -d                              # app + Ollama sidecar (GPU)
+docker compose up -d                                # app + Ollama sidecar (GPU)
 docker compose exec ollama ollama pull qwen3:4b     # agent, needs tool calling
 docker compose exec ollama ollama pull llama3.2:3b  # HUD summary, needs instruct
 ```
 
-Then open `http://localhost:4173` and pick **Ollama** in the panel.
+Then open `http://localhost:4173` and pick **Ollama** in the panel. The five-word
+AI `SUMMARY` on the HUD follows the same provider, so going local takes that with
+it — worth more than the cost saving, since it otherwise posts your live
+coordinates to a hosted provider every 15 seconds.
 
 > [!IMPORTANT]
-> **Set `OLLAMA_CONTEXT_LENGTH` to at least 16384.** This app sends a ~11,300-token prefix (the operating manual plus 28 tool schemas) on every request. Ollama's stock window is 4096, which silently truncates the tool list — the request still returns HTTP 200, and the model then improvises malformed calls that look like stupidity rather than a config error. `compose.yaml` sets this for you; if you run Ollama yourself, set it yourself. The app detects the truncation and tells you what to fix.
+> **Set `OLLAMA_CONTEXT_LENGTH` to at least 16384**, and use a **non-reasoning**
+> model for the HUD summary. Both defaults fail silently in ways that look like a
+> stupid model rather than a config error. `compose.yaml` handles both; if you run
+> Ollama yourself, see **[docs/LOCAL-MODELS.md](docs/LOCAL-MODELS.md)**.
 
-Measured on an 8 GB card (RTX 3070) with `qwen3:4b`:
-
-| Context | Result |
-|---|---|
-| 4096 (stock) | ❌ prefix truncated, tool calling broken |
-| **16384** | ✅ 5.4 GB, entirely on GPU, correct tool calls |
-| 32768 | ⚠️ 8.0 GB, spills to CPU, unusably slow |
-
-Budget for your desktop too: X11 and a browser rendering the globe can hold 1 to 2 GB of the same card, so on 8 GB the model and the app compete. A smaller model or a second machine for Ollama both fix it.
+📖 **[Text agent reference](docs/TEXT-AGENT.md)** — providers, the tool loop, configuration, troubleshooting
+🖥️ **[Local models](docs/LOCAL-MODELS.md)** — Ollama setup, measured VRAM and context figures, model choice
+🐳 **[Docker](docs/DOCKER.md)** — the compose stack, GPU passthrough, volumes, exposure
 
 ---
 
