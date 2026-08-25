@@ -62,6 +62,22 @@ import {
 } from './src/data/terrainHeightsProxy.js';
 import { VOICE_MODELS, isKnownVoiceTier, resolveVoiceModel } from './src/voice/voiceCost.js';
 import { buildGevInstructions } from './src/agent/instructions.js';
+import {
+  AGENT_PROMPT_PREFIX_TOKENS,
+  MIN_TOOL_CONTEXT_TOKENS,
+  describeProviders,
+  gateModels,
+  isProviderConfigured,
+  providerApiKey,
+  providerBaseUrl,
+  resolveConfiguredModel,
+  resolveConfiguredProvider,
+  resolveProvider,
+  sortModelsForPicker,
+} from './src/agent/providers.js';
+import { indexToolsByName, prepareToolCall, toChatCompletionTools } from './src/agent/toolSchema.js';
+import { buildRequestMessages, toolResultMessage } from './src/agent/conversation.js';
+import { fetchModels, requestChatCompletion } from './src/agent/upstream.js';
 
 /** Resolve __dirname for ESM context. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1325,6 +1341,8 @@ const OPENAI_REALTIME_REASONING_DEFAULT = 'low';
 const OPENAI_REALTIME_CONTEXT_TOKENS_DEFAULT = 3000;
 const OPENAI_REALTIME_CONTEXT_RETENTION_DEFAULT = 0.5;
 const OPENAI_HUD_SUMMARY_MODEL_DEFAULT = 'gpt-5-nano';
+/** Request body ceiling for the text agent: a long transcript plus tool results. */
+const AGENT_REQUEST_MAX_BYTES = 512 * 1024;
 const REALTIME_DEBUG_LOG_DIR = path.join(__dirname, '.gev-logs');
 const REALTIME_DEBUG_LOG_FILE = path.join(REALTIME_DEBUG_LOG_DIR, 'realtime-conversations.jsonl');
 const REALTIME_DEBUG_LOG_MAX_BYTES = 8 * 1024 * 1024;
@@ -5209,6 +5227,252 @@ function readRequestBody(req, maxBytes = 1024 * 1024) {
  * Cesium feature metadata. Nearby Search supplies the names around the actual
  * screen-space target without exposing the Google API key in the request.
  */
+/**
+ * Vite plugin: text agent relay for OpenAI, OpenRouter, and Ollama.
+ *
+ * The browser owns the transcript and executes the tools, because the tools
+ * drive its Cesium viewer. This server owns the credentials, the operating
+ * manual, and the tool schemas, so the client never sees a key and cannot
+ * substitute its own instructions.
+ *
+ * The malformed-tool-call correction loop also lives here: Ollama's compatible
+ * endpoint does not accept `tool_choice`, so a bad call cannot be prevented,
+ * only caught and handed back. Running that loop server-side keeps a retry off
+ * the browser round trip and out of the visible transcript.
+ *
+ * Endpoints:
+ *   GET  /api/agent/config  — providers, defaults, and prefix size for the UI
+ *   GET  /api/agent/models  — capability-gated model list for one provider
+ *   POST /api/agent/command — one model turn, tool calls validated before return
+ */
+function textAgentProxy() {
+  /** Chat-shaped tool schemas, derived once from the Realtime definitions. */
+  let _chatTools;
+  function chatTools() {
+    if (!_chatTools) _chatTools = toChatCompletionTools(GEV_REALTIME_TOOLS);
+    return _chatTools;
+  }
+
+  /** Tool schemas by name, for validating what the model sends back. */
+  let _toolIndex;
+  function toolIndex() {
+    if (!_toolIndex) _toolIndex = indexToolsByName(GEV_REALTIME_TOOLS);
+    return _toolIndex;
+  }
+
+  /** Correction attempts allowed before a malformed call is surfaced. */
+  const MAX_TOOL_CORRECTIONS = 2;
+
+  function sendJson(res, statusCode, payload) {
+    res.statusCode = statusCode;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify(payload));
+  }
+
+  function requireMethod(req, res, method) {
+    if (req.method === method) return true;
+    sendJson(res, 405, { error: 'Method not allowed' });
+    return false;
+  }
+
+  /**
+   * Resolve the provider named by a request, writing the error response itself.
+   *
+   * @returns {{provider: object, baseUrl: string, apiKey: string|null}|null}
+   */
+  function resolveRequestProvider(requestedId, res) {
+    const provider = requestedId ? resolveProvider(requestedId) : resolveConfiguredProvider(process.env);
+    if (!provider) {
+      sendJson(res, 400, { error: `Unknown provider "${String(requestedId).slice(0, 40)}"` });
+      return null;
+    }
+    if (!isProviderConfigured(provider, process.env)) {
+      sendJson(res, 503, {
+        error: `${provider.label} is not configured. Set ${provider.apiKeyEnv} to use it.`,
+        provider: provider.id,
+      });
+      return null;
+    }
+    return {
+      provider,
+      baseUrl: providerBaseUrl(provider, process.env),
+      apiKey: providerApiKey(provider, process.env),
+    };
+  }
+
+  /** Hosted providers spend money, so they share the OpenAI opt-in throttle. */
+  function enforceProviderRateLimit(provider, req, res) {
+    if (provider.kind !== 'hosted') return true;
+    return enforceOptInRateLimit(openAiRateLimiter(), req, res);
+  }
+
+  function install(middlewares) {
+    middlewares.use('/api/agent/config', async (req, res) => {
+      if (!requireMethod(req, res, 'GET')) return;
+      const configured = resolveConfiguredProvider(process.env);
+      sendJson(res, 200, {
+        providers: describeProviders(process.env),
+        defaultProvider: configured.id,
+        defaultModel: resolveConfiguredModel(configured, process.env),
+        toolCount: GEV_REALTIME_TOOLS.length,
+        promptPrefixTokens: AGENT_PROMPT_PREFIX_TOKENS,
+        minContextTokens: MIN_TOOL_CONTEXT_TOKENS,
+      });
+    });
+
+    middlewares.use('/api/agent/models', async (req, res) => {
+      if (!requireMethod(req, res, 'GET')) return;
+
+      let requestedId = null;
+      try {
+        requestedId = new URL(req.url || '', 'http://localhost').searchParams.get('provider');
+      } catch {
+        requestedId = null;
+      }
+
+      const resolved = resolveRequestProvider(requestedId, res);
+      if (!resolved) return;
+      if (!enforceProviderRateLimit(resolved.provider, req, res)) return;
+
+      const listing = await fetchModels({ ...resolved, fetchImpl: fetch });
+      if (!listing.ok) {
+        sendJson(res, 502, { error: listing.error, provider: resolved.provider.id, models: [] });
+        return;
+      }
+
+      const { usable, rejected } = gateModels(listing.models);
+      sendJson(res, 200, {
+        provider: resolved.provider.id,
+        models: sortModelsForPicker(usable),
+        rejected: rejected.map(({ model, reason }) => ({ id: model.id, reason })),
+        defaultModel: resolveConfiguredModel(resolved.provider, process.env),
+      });
+    });
+
+    middlewares.use('/api/agent/command', async (req, res) => {
+      if (!requireMethod(req, res, 'POST')) return;
+
+      let payload;
+      try {
+        payload = JSON.parse(await readRequestBody(req, AGENT_REQUEST_MAX_BYTES) || '{}');
+      } catch (error) {
+        sendJson(res, 400, { error: error?.message || 'Malformed request body' });
+        return;
+      }
+
+      const resolved = resolveRequestProvider(payload.provider, res);
+      if (!resolved) return;
+      if (!enforceProviderRateLimit(resolved.provider, req, res)) return;
+
+      const model = typeof payload.model === 'string' && payload.model.trim()
+        ? payload.model.trim()
+        : resolveConfiguredModel(resolved.provider, process.env);
+      if (!model) {
+        sendJson(res, 400, {
+          error: `No model selected for ${resolved.provider.label}. Pick one, or set GEV_AGENT_MODEL.`,
+        });
+        return;
+      }
+
+      const messages = buildRequestMessages({
+        instructions: buildGevInstructions({ modality: 'text' }),
+        messages: payload.messages,
+      });
+
+      // Correction loop: a rejected tool call is answered with its own error so
+      // the model can restate it, without that exchange reaching the browser.
+      const corrections = [];
+      for (let attempt = 0; attempt <= MAX_TOOL_CORRECTIONS; attempt += 1) {
+        const completion = await requestChatCompletion({
+          ...resolved,
+          model,
+          messages: [...messages, ...corrections],
+          tools: chatTools(),
+          fetchImpl: fetch,
+        });
+
+        if (!completion.ok) {
+          sendJson(res, completion.status && completion.status < 500 ? completion.status : 502, {
+            error: completion.error,
+            provider: resolved.provider.id,
+          });
+          return;
+        }
+
+        const rawCalls = Array.isArray(completion.message?.tool_calls) ? completion.message.tool_calls : [];
+        if (!rawCalls.length) {
+          sendJson(res, 200, {
+            provider: resolved.provider.id,
+            model: completion.model,
+            message: { role: 'assistant', content: completion.message.content || '' },
+            toolCalls: [],
+            usage: completion.usage,
+            corrections: corrections.length / 2,
+          });
+          return;
+        }
+
+        const prepared = rawCalls.map((call) => ({
+          id: call.id,
+          raw: call,
+          result: prepareToolCall(call.function, toolIndex()),
+        }));
+        const invalid = prepared.filter((entry) => !entry.result.ok);
+
+        if (!invalid.length) {
+          sendJson(res, 200, {
+            provider: resolved.provider.id,
+            model: completion.model,
+            message: completion.message,
+            toolCalls: prepared.map((entry) => ({
+              id: entry.id,
+              name: entry.result.name,
+              args: entry.result.args,
+            })),
+            usage: completion.usage,
+            corrections: corrections.length / 2,
+          });
+          return;
+        }
+
+        if (attempt === MAX_TOOL_CORRECTIONS) {
+          sendJson(res, 200, {
+            provider: resolved.provider.id,
+            model: completion.model,
+            message: {
+              role: 'assistant',
+              content: `I could not form a valid command for that. ${invalid[0].result.error}`,
+            },
+            toolCalls: [],
+            usage: completion.usage,
+            corrections: attempt,
+            toolCallFailed: true,
+          });
+          return;
+        }
+
+        corrections.push(completion.message);
+        for (const entry of prepared) {
+          corrections.push(toolResultMessage(
+            entry.id,
+            entry.result.ok
+              ? { ok: false, error: 'Not run: another tool call in the same turn was invalid. Reissue both.' }
+              : { ok: false, error: entry.result.error },
+          ));
+        }
+      }
+    });
+  }
+
+  return {
+    name: 'text-agent-proxy',
+    configureServer: (server) => install(server.middlewares),
+    configurePreviewServer: (server) => install(server.middlewares),
+  };
+}
+
+
 function googlePlacesContextProxy() {
   function install(middlewares) {
     middlewares.use('/api/google/nearby-places', async (req, res) => {
@@ -7298,6 +7562,7 @@ export default defineConfig(({ mode }) => {
       trackBackfillProxies(),
       openAiRealtimeProxy(),
       googlePlacesContextProxy(),
+      textAgentProxy(),
     ],
     server: {
       host: env.HOST || 'localhost',
