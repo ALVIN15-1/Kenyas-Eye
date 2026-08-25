@@ -1444,15 +1444,26 @@ class CockpitViewController {
     );
     if (this.compassTape) {
       const divisions = compassDivisions(heading);
-      const signature = divisions.join(',');
-      if (signature !== this.lastCompassSignature) {
-        this.lastCompassSignature = signature;
+      if (!this.compassTapeSlots) {
+        // Slot positions never move, only which heading lands in each one, so
+        // the seven spans get built once and reused instead of going through
+        // innerHTML every time the tape advances.
         this.compassTape.innerHTML = divisions
           .map((division, index) => {
             const slot = index - 3;
-            return `<span class="${slot === 0 ? 'active' : ''}" style="--slot:${slot};--depth:${Math.abs(slot)}">${formatCompassDivision(division)}</span>`;
+            return `<span style="--slot:${slot};--depth:${Math.abs(slot)}"></span>`;
           })
           .join('');
+        this.compassTapeSlots = Array.from(this.compassTape.children);
+      }
+      const signature = divisions.join(',');
+      if (signature !== this.lastCompassSignature) {
+        this.lastCompassSignature = signature;
+        divisions.forEach((division, index) => {
+          const slotEl = this.compassTapeSlots[index];
+          slotEl.textContent = formatCompassDivision(division);
+          slotEl.classList.toggle('active', index === 3);
+        });
       }
     }
     if (this.clock) this.clock.textContent = new Date().toISOString().slice(11, 19) + 'Z';

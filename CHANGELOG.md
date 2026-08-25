@@ -43,6 +43,9 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   outages and wait for measured photoreal-surface evidence before a 3D model
   takes over from its billboard.
 - Cockpit altitude uses aviation MSL data rather than Cesium render height.
+- The cockpit compass tape builds its seven labels once and updates them in
+  place on a heading-bucket change, instead of re-parsing fresh HTML through
+  innerHTML every time.
 
 ### Security
 
