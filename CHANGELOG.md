@@ -46,6 +46,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Security
 
+- The CCTV media proxy now applies a bounded connect timeout to the upstream
+  fetch and returns a 504 when an upstream stalls, so a slow or hung source can
+  no longer hold a proxy request open indefinitely. The timer is cleared once
+  response headers arrive, so healthy live streams are unaffected.
 - Production transitive dependencies resolve to patched DOMPurify and
   protobufjs releases without changing the Cesium version or application APIs.
 - Production dependency audit reports no known advisories; remaining audit
