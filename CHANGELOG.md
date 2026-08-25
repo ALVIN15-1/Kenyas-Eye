@@ -7,6 +7,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- Added a public ALPR / Flock Safety camera layer from OpenStreetMap DeFlock
+  tags (locations and facing metadata only — no plate records). Queries use a
+  small quantized bbox and a bundled Lannon-corridor OSM snapshot so the layer
+  still populates when public Overpass mirrors return 502.
 - Added honest aircraft identity narration: callsign, operator, registration,
   type, and route come only from selected-contact context, and missing operator,
   route, or type enrichment is named explicitly.

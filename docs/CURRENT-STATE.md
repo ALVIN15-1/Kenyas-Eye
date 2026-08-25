@@ -1595,6 +1595,7 @@ its criteria cannot be silently ignored.
 | Military Flights 🎖️ | adsb.lol /v2/mil | `src/data/militaryFlights.js` | `/api/adsblol/mil` | 15s |
 | Live AIS Vessels 🚢 | AISStream websocket | `src/data/aisLiveVessels.js` | `/api/ais-live` | 60s (+800ms visibility pass) |
 | Mapped Installations ⌖ | OpenStreetMap mapped context; on-demand Google Maps Places supplement | `src/data/militaryInstallations.js` | `/api/military-installations`, `/api/google/text-search` | viewport-driven + user search; while unavailable, auto-retry 30 s → 240 s backoff |
+| ALPR / Flock Cameras | OpenStreetMap DeFlock ALPR tags | `src/data/alprCameras.js` | `/api/overpass` | viewport-driven quantized ~0.14° boxes; Lannon home bbox + bundled OSM snapshot on 502 |
 | Earthquakes | USGS | `src/data/earthquakes.js` | — | 60s |
 | Satellites | CelesTrak | `src/data/satellites.js` | `/api/celestrak` | 120s |
 | Space Missions (30d) | Launch Library 2 + CelesTrak | `src/data/rocketLaunches.js` | `/api/launches` + `/api/celestrak/active` | 5 min |
