@@ -46,6 +46,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Security
 
+- GBFS proxy body-size cap now measures the response in bytes
+  (`Buffer.byteLength`) instead of JavaScript string length, so the
+  `GBFS_MAX_BODY_BYTES` limit holds for multi-byte payloads and cannot be
+  overrun by non-ASCII upstream responses.
 - Production transitive dependencies resolve to patched DOMPurify and
   protobufjs releases without changing the Cesium version or application APIs.
 - Production dependency audit reports no known advisories; remaining audit
