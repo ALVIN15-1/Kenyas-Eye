@@ -277,10 +277,14 @@ export async function requestChatCompletion({
   tools,
   fetchImpl,
   timeoutMs,
+  maxTokens,
 }) {
   const budget = Number.isFinite(timeoutMs) ? timeoutMs : completionTimeoutFor(provider);
   const body = { model, messages };
   if (Array.isArray(tools) && tools.length) body.tools = tools;
+  // Only sent when asked for: the agent loop must not cap a tool-calling turn,
+  // while the HUD summary is a five-word answer that should never run long.
+  if (Number.isFinite(maxTokens)) body.max_tokens = maxTokens;
 
   let response;
   try {
@@ -308,5 +312,60 @@ export async function requestChatCompletion({
     finishReason: typeof choice.finish_reason === 'string' ? choice.finish_reason : null,
     usage: data?.usage && typeof data.usage === 'object' ? data.usage : null,
     model: typeof data?.model === 'string' ? data.model : model,
+  };
+}
+
+/**
+ * Request one short, tool-free text completion.
+ *
+ * Used by the HUD summary, which historically called OpenAI's `/v1/responses`.
+ * Chat completions is the surface every supported provider implements, so
+ * moving to it is what makes the summary portable; the `reasoning.effort`
+ * field the Responses call carried is OpenAI-only and does not survive.
+ *
+ * @param {{provider: object, baseUrl: string, apiKey: string|null, model: string,
+ *   instructions: string, input: string, maxTokens?: number, fetchImpl: Function,
+ *   timeoutMs?: number}} options
+ * @returns {Promise<{ok: true, text: string, usage: object|null, model: string}
+ *   | {ok: false, error: string, status?: number}>}
+ */
+export async function requestTextCompletion({
+  provider,
+  baseUrl,
+  apiKey,
+  model,
+  instructions,
+  input,
+  maxTokens = 100,
+  fetchImpl,
+  timeoutMs,
+}) {
+  const completion = await requestChatCompletion({
+    provider,
+    baseUrl,
+    apiKey,
+    model,
+    messages: [
+      { role: 'system', content: String(instructions ?? '') },
+      { role: 'user', content: String(input ?? '') },
+    ],
+    tools: [],
+    fetchImpl,
+    timeoutMs,
+    maxTokens,
+  });
+
+  if (!completion.ok) return completion;
+  // `reasoning` is where a thinking model puts its trace; its length is the
+  // signal that separates 'model had nothing to say' from 'model spent the
+  // whole budget thinking', which have different remedies.
+  const reasoning = completion.message?.reasoning ?? completion.message?.reasoning_content;
+  return {
+    ok: true,
+    text: typeof completion.message?.content === 'string' ? completion.message.content : '',
+    finishReason: completion.finishReason,
+    reasoningLength: typeof reasoning === 'string' ? reasoning.length : 0,
+    usage: completion.usage,
+    model: completion.model,
   };
 }

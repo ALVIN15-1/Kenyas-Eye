@@ -2181,7 +2181,17 @@ silently demoting every later lookup for the session.
 
 ### AI HUD Summary (June 2026)
 
-- HUD `SUMMARY` readout requests a five-word intelligence-style summary from `/api/openai/hud-summary` (model `OPENAI_HUD_SUMMARY_MODEL`, default `gpt-5-nano`, minimal reasoning).
+- HUD `SUMMARY` readout requests a five-word intelligence-style summary from
+  `/api/openai/hud-summary` (path retained for its QA consumers). It now runs
+  through the shared provider registry over chat completions rather than
+  OpenAI's Responses API, so OpenAI, OpenRouter, or a local Ollama can serve it.
+  Provider defaults to `GEV_AGENT_PROVIDER` and is overridden by
+  `GEV_HUD_PROVIDER`; model resolves `GEV_HUD_MODEL_<PROVIDER>` →
+  `GEV_HUD_MODEL` → `OPENAI_HUD_SUMMARY_MODEL` (OpenAI only) → the provider
+  default, so an unconfigured install behaves exactly as before (OpenAI,
+  `gpt-5-nano`). The Responses-only `reasoning.effort` hint is gone with the
+  transport; a reasoning model that returns empty content with
+  `finish_reason: length` is diagnosed and told to switch to an instruct model.
 - Input is the live basemap label context (place/street/nearby-place labels + enabled layers) — the model is instructed not to infer from coordinates.
 - Output is sanitized to exactly five words; falls back to the deterministic telemetry summary on error/timeout (5s abort); typewriter animation on update.
 

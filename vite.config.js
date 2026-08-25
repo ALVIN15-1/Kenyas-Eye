@@ -72,13 +72,15 @@ import {
   providerBaseUrl,
   resolveConfiguredModel,
   resolveConfiguredProvider,
+  resolveHudModel,
+  resolveHudProvider,
   resolveProvider,
   sortModelsForPicker,
 } from './src/agent/providers.js';
 import { indexToolsByName, prepareToolCall, toChatCompletionTools } from './src/agent/toolSchema.js';
 import { buildRequestMessages, toolResultMessage } from './src/agent/conversation.js';
-import { fetchModels, requestChatCompletion } from './src/agent/upstream.js';
-import { diagnoseTurn } from './src/agent/diagnostics.js';
+import { fetchModels, requestChatCompletion, requestTextCompletion } from './src/agent/upstream.js';
+import { diagnoseTextTurn, diagnoseTurn } from './src/agent/diagnostics.js';
 
 /** Resolve __dirname for ESM context. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1341,7 +1343,21 @@ const OPENAI_REALTIME_VOICE_DEFAULT = 'marin';
 const OPENAI_REALTIME_REASONING_DEFAULT = 'low';
 const OPENAI_REALTIME_CONTEXT_TOKENS_DEFAULT = 3000;
 const OPENAI_REALTIME_CONTEXT_RETENTION_DEFAULT = 0.5;
-const OPENAI_HUD_SUMMARY_MODEL_DEFAULT = 'gpt-5-nano';
+/**
+ * The HUD summary contract. Unchanged from the Responses-API implementation:
+ * only the transport moved, so the five-word output stays identical across
+ * providers.
+ */
+const HUD_SUMMARY_INSTRUCTIONS = [
+  "Write one concise intelligence-HUD summary for God's Eye View.",
+  'Use only the supplied place, street, nearby-place, and enabled-layer text labels.',
+  'Prefer the clearest named place and include a relevant enabled layer only when useful.',
+  'Do not infer from coordinates or invent a place.',
+  'Output exactly five words with no title, punctuation, markdown, or introductory phrase.',
+].join(' ');
+
+/** Output ceiling for the summary. Five words never needs more. */
+const HUD_SUMMARY_MAX_TOKENS = 100;
 /** Request body ceiling for the text agent: a long transcript plus tool results. */
 const AGENT_REQUEST_MAX_BYTES = 512 * 1024;
 const REALTIME_DEBUG_LOG_DIR = path.join(__dirname, '.gev-logs');
@@ -4979,6 +4995,9 @@ function trackBackfillProxies() {
  */
 function openAiRealtimeProxy() {
   function install(middlewares) {
+    // Path keeps its historical name: it is consumed by a dozen QA harnesses
+    // and by src/hud.js, and renaming it for cosmetic accuracy would be churn
+    // with real regression risk. The handler is no longer OpenAI-specific.
     middlewares.use('/api/openai/hud-summary', async (req, res) => {
       if (req.method !== 'POST') {
         res.statusCode = 405;
@@ -4987,53 +5006,77 @@ function openAiRealtimeProxy() {
         return;
       }
 
-      // Opt-in per-IP throttle (GEV_RATELIMIT_OPENAI_PER_MIN). No-op when unset.
-      if (!enforceOptInRateLimit(openAiRateLimiter(), req, res)) return;
+      const provider = resolveHudProvider(process.env);
 
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) {
+      // Opt-in per-IP throttle (GEV_RATELIMIT_OPENAI_PER_MIN). Hosted providers
+      // only: a local daemon costs nothing per call, so throttling it would
+      // degrade the readout for no benefit.
+      if (provider.kind === 'hosted' && !enforceOptInRateLimit(openAiRateLimiter(), req, res)) return;
+
+      if (!isProviderConfigured(provider, process.env)) {
         res.statusCode = 503;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'OPENAI_API_KEY is not set' }));
+        // This exact string is asserted by the L9 release gate for the OpenAI
+        // case; keep it verbatim rather than generalising the wording.
+        res.end(JSON.stringify({
+          error: provider.id === 'openai'
+            ? 'OPENAI_API_KEY is not set'
+            : `${provider.label} is not configured. Set ${provider.apiKeyEnv} to use it.`,
+        }));
+        return;
+      }
+
+      const model = resolveHudModel(provider, process.env);
+      if (!model) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: `No HUD summary model configured for ${provider.label}. Set GEV_HUD_MODEL.`,
+        }));
         return;
       }
 
       try {
         const body = await readRequestBody(req, 64 * 1024);
         const context = JSON.parse(body || '{}');
-        const response = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: process.env.OPENAI_HUD_SUMMARY_MODEL || OPENAI_HUD_SUMMARY_MODEL_DEFAULT,
-            instructions: [
-              "Write one concise intelligence-HUD summary for God's Eye View.",
-              'Use only the supplied place, street, nearby-place, and enabled-layer text labels.',
-              'Prefer the clearest named place and include a relevant enabled layer only when useful.',
-              'Do not infer from coordinates or invent a place.',
-              'Output exactly five words with no title, punctuation, markdown, or introductory phrase.',
-            ].join(' '),
-            input: JSON.stringify(context),
-            reasoning: { effort: 'minimal' },
-            max_output_tokens: 100,
-          }),
+        const completion = await requestTextCompletion({
+          provider,
+          baseUrl: providerBaseUrl(provider, process.env),
+          apiKey: providerApiKey(provider, process.env),
+          model,
+          instructions: HUD_SUMMARY_INSTRUCTIONS,
+          input: JSON.stringify(context),
+          maxTokens: HUD_SUMMARY_MAX_TOKENS,
+          fetchImpl: fetch,
         });
-        const data = await response.json().catch(() => ({}));
-        const summary = toFiveWordHudSummary(extractOpenAiResponseText(data));
-        res.statusCode = response.ok && summary ? 200 : response.status || 502;
+
+        // A reasoning model can burn the whole ceiling on its trace and return
+        // empty content; that needs a different remedy than an upstream error.
+        const diagnosis = completion.ok
+          ? diagnoseTextTurn({
+            content: completion.text,
+            finishReason: completion.finishReason,
+            reasoningLength: completion.reasoningLength,
+            provider,
+            model: completion.model,
+          })
+          : { ok: false, error: completion.error, remedy: null };
+
+        const summary = completion.ok ? toFiveWordHudSummary(completion.text) : '';
+        res.statusCode = completion.ok && summary ? 200 : 502;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         res.end(JSON.stringify({
           summary: summary || null,
-          error: response.ok ? null : data.error?.message || 'OpenAI HUD summary request failed',
+          provider: provider.id,
+          model: completion.ok ? completion.model : model,
+          error: summary ? null : diagnosis.error,
+          remedy: summary ? null : diagnosis.remedy,
         }));
       } catch (error) {
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: error?.message || 'OpenAI HUD summary request failed' }));
+        res.end(JSON.stringify({ error: error?.message || 'HUD summary request failed' }));
       }
     });
 
@@ -5179,18 +5222,6 @@ function openAiRealtimeProxy() {
       install(server.middlewares);
     },
   };
-}
-
-function extractOpenAiResponseText(data) {
-  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
-    return data.output_text.trim();
-  }
-  if (!Array.isArray(data?.output)) return '';
-  return data.output
-    .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
-    .map((part) => part?.text || part?.output_text || '')
-    .join(' ')
-    .trim();
 }
 
 function toFiveWordHudSummary(value) {

@@ -108,3 +108,46 @@ export function diagnoseTurn({ usage, message, provider, model, expectedPrefixTo
       : 'Select a model that supports tool calling.',
   };
 }
+
+/**
+ * Detect a reasoning model that spent its whole output budget thinking.
+ *
+ * Observed with qwen3:4b on the five-word HUD summary: the model emits an
+ * internal reasoning trace, `content` comes back empty, and `finish_reason` is
+ * `length`. Raising the ceiling does not help — at 1024 tokens it was still
+ * thinking after 86 seconds and had produced no answer. The remedy is a
+ * different model, so the error has to say that rather than reporting an empty
+ * result and leaving the operator to guess.
+ *
+ * @param {{content?: string, finishReason?: string|null, reasoningLength?: number}} turn
+ * @returns {boolean}
+ */
+export function looksLikeReasoningOverflow({ content, finishReason, reasoningLength = 0 }) {
+  const emptyAnswer = typeof content !== 'string' || !content.trim();
+  return emptyAnswer && finishReason === 'length' && reasoningLength > 0;
+}
+
+/**
+ * Assess a short text completion, such as the HUD summary.
+ *
+ * @param {{content?: string, finishReason?: string|null, reasoningLength?: number,
+ *   provider?: object|null, model?: string}} turn
+ * @returns {{ok: true} | {ok: false, error: string, remedy: string}}
+ */
+export function diagnoseTextTurn({ content, finishReason, reasoningLength, provider, model }) {
+  if (looksLikeReasoningOverflow({ content, finishReason, reasoningLength })) {
+    return {
+      ok: false,
+      error: `${model || 'The model'} spent its entire output budget on internal reasoning and returned no answer.`,
+      remedy: provider?.kind === 'local'
+        ? 'Use a non-reasoning instruct model for this readout (for example llama3.2:3b or qwen2.5:3b). A reasoning model can think past any ceiling on a five-word task.'
+        : 'Select a non-reasoning model, or one whose reasoning effort can be set to minimal.',
+    };
+  }
+  if (typeof content === 'string' && content.trim()) return { ok: true };
+  return {
+    ok: false,
+    error: `${model || 'The model'} returned no usable text.`,
+    remedy: 'Check the selected model supports plain chat completions.',
+  };
+}

@@ -18,7 +18,10 @@ import {
   describeProviders,
   estimateCommandCostUsd,
   formatCommandCostUsd,
+  HUD_SUMMARY_MODEL_DEFAULT,
   gateModels,
+  resolveHudModel,
+  resolveHudProvider,
   isKnownProvider,
   isProviderConfigured,
   normalizeOllamaModel,
@@ -296,4 +299,76 @@ test('every provider definition is frozen and internally consistent', () => {
     assert.ok(provider.modelsPath.startsWith('/'), `${id} models path must be root-relative`);
     assert.ok(['hosted', 'local'].includes(provider.kind));
   }
+});
+
+// ── HUD summary provider resolution ─────────────────────────────────────────
+// The summary predates the provider registry and is configured by a documented
+// legacy variable, so the contract pinned here is that an operator who has set
+// nothing new sees exactly the historical behaviour: OpenAI and gpt-5-nano.
+
+test('the HUD summary defaults to OpenAI and gpt-5-nano when nothing is configured', () => {
+  const provider = resolveHudProvider({});
+  assert.equal(provider.id, 'openai');
+  assert.equal(resolveHudModel(provider, {}), HUD_SUMMARY_MODEL_DEFAULT);
+  assert.equal(HUD_SUMMARY_MODEL_DEFAULT, 'gpt-5-nano');
+});
+
+test('the legacy OPENAI_HUD_SUMMARY_MODEL override still works', () => {
+  const provider = resolveHudProvider({});
+  assert.equal(resolveHudModel(provider, { OPENAI_HUD_SUMMARY_MODEL: 'gpt-5-mini' }), 'gpt-5-mini');
+});
+
+test('the HUD follows the agent provider so the local story is complete', () => {
+  // An operator who moved the agent to Ollama for privacy has not done so while
+  // the HUD still posts live coordinates to a hosted provider every 15s.
+  assert.equal(resolveHudProvider({ GEV_AGENT_PROVIDER: 'ollama' }).id, 'ollama');
+  assert.equal(resolveHudProvider({ GEV_AGENT_PROVIDER: 'openrouter' }).id, 'openrouter');
+});
+
+test('GEV_HUD_PROVIDER overrides the agent provider', () => {
+  assert.equal(
+    resolveHudProvider({ GEV_AGENT_PROVIDER: 'ollama', GEV_HUD_PROVIDER: 'openai' }).id,
+    'openai',
+  );
+});
+
+test('an unrecognized GEV_HUD_PROVIDER falls back rather than reaching fetch', () => {
+  assert.equal(resolveHudProvider({ GEV_HUD_PROVIDER: 'http://attacker.test' }).id, 'openai');
+  assert.equal(resolveHudProvider({ GEV_HUD_PROVIDER: '__proto__' }).id, 'openai');
+  assert.equal(
+    resolveHudProvider({ GEV_HUD_PROVIDER: 'nonsense', GEV_AGENT_PROVIDER: 'ollama' }).id,
+    'ollama',
+  );
+});
+
+test('HUD model resolution prefers per-provider, then shared, then legacy', () => {
+  const openai = resolveProvider('openai');
+  const env = {
+    GEV_HUD_MODEL: 'shared-model',
+    GEV_HUD_MODEL_OPENAI: 'per-provider-model',
+    OPENAI_HUD_SUMMARY_MODEL: 'legacy-model',
+  };
+  assert.equal(resolveHudModel(openai, env), 'per-provider-model');
+  assert.equal(resolveHudModel(openai, { ...env, GEV_HUD_MODEL_OPENAI: undefined }), 'shared-model');
+  assert.equal(resolveHudModel(openai, { OPENAI_HUD_SUMMARY_MODEL: 'legacy-model' }), 'legacy-model');
+});
+
+test('a non-OpenAI HUD provider ignores the OpenAI legacy variable', () => {
+  const ollama = resolveProvider('ollama');
+  assert.equal(resolveHudModel(ollama, { OPENAI_HUD_SUMMARY_MODEL: 'gpt-5-nano' }), null);
+  assert.equal(
+    resolveHudModel(ollama, { OPENAI_HUD_SUMMARY_MODEL: 'gpt-5-nano', GEV_AGENT_MODEL_OLLAMA: 'qwen3:4b' }),
+    'qwen3:4b',
+    'it should fall through to the agent model rather than an OpenAI id',
+  );
+});
+
+test('the HUD falls back to the agent model for a provider with no default', () => {
+  const ollama = resolveProvider('ollama');
+  assert.equal(resolveHudModel(ollama, { GEV_AGENT_MODEL: 'qwen3:8b' }), 'qwen3:8b');
+  assert.equal(resolveHudModel(ollama, {}), null, 'no model anywhere must be reported, not guessed');
+});
+
+test('resolveHudModel is total for a missing provider', () => {
+  assert.equal(resolveHudModel(null, { GEV_HUD_MODEL: 'x' }), null);
 });

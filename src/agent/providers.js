@@ -393,3 +393,47 @@ export function formatCommandCostUsd(usd) {
   if (usd < 1) return `~$${usd.toFixed(4)}`;
   return `~$${usd.toFixed(2)}`;
 }
+
+/**
+ * Model used for the five-word HUD summary when nothing else is configured.
+ *
+ * The summary is a tiny, high-frequency text task (one call per 15s tick while
+ * the view changes), so the cheapest capable model is the right default.
+ */
+export const HUD_SUMMARY_MODEL_DEFAULT = 'gpt-5-nano';
+
+/**
+ * Provider that answers the HUD summary.
+ *
+ * Defaults to whatever the agent uses, because "which LLM does this app talk
+ * to" should have one answer: an operator who moved the agent to Ollama for
+ * privacy has not meaningfully done so while the HUD still posts their live
+ * coordinates to a hosted provider every fifteen seconds. GEV_HUD_PROVIDER
+ * overrides when the two genuinely should differ.
+ */
+export function resolveHudProvider(env = {}) {
+  return resolveProvider(env.GEV_HUD_PROVIDER) || resolveConfiguredProvider(env);
+}
+
+/**
+ * Model for the HUD summary.
+ *
+ * Resolution order: per-provider override, shared override, the legacy
+ * OPENAI_HUD_SUMMARY_MODEL (OpenAI only, kept working because it is documented
+ * in .env.example and predates this indirection), then the provider's own
+ * default. The net effect with no GEV_* variables set is the historical
+ * behaviour: OpenAI and gpt-5-nano.
+ */
+export function resolveHudModel(provider, env = {}) {
+  if (!provider) return null;
+  const perProvider = env[`GEV_HUD_MODEL_${provider.id.toUpperCase()}`];
+  if (typeof perProvider === 'string' && perProvider.trim()) return perProvider.trim();
+  const shared = env.GEV_HUD_MODEL;
+  if (typeof shared === 'string' && shared.trim()) return shared.trim();
+  if (provider.id === 'openai') {
+    const legacy = env.OPENAI_HUD_SUMMARY_MODEL;
+    if (typeof legacy === 'string' && legacy.trim()) return legacy.trim();
+    return HUD_SUMMARY_MODEL_DEFAULT;
+  }
+  return resolveConfiguredModel(provider, env);
+}

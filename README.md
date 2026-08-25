@@ -182,11 +182,27 @@ The model picker populates itself from whichever provider you select, so pulling
 
 **Cost.** Typed commands are dramatically cheaper than voice, because audio tokens are what cost money. A command runs roughly **$0.0002 to $0.0008** on a small hosted model, against roughly **$0.10 to $0.30 per minute** of open-mic voice. On Ollama it is free.
 
+### The AI HUD summary rides along
+
+The five-word `SUMMARY` readout on the HUD uses the same providers. It follows
+whatever the agent is set to, so pointing the agent at Ollama takes the summary
+local too — which matters more than the cost: it otherwise posts your live
+coordinates, street names, and active layers to a hosted provider every 15
+seconds. Override with `GEV_HUD_PROVIDER` / `GEV_HUD_MODEL`.
+
+> [!IMPORTANT]
+> **Use a non-reasoning model for the summary.** A reasoning model spends its
+> entire output budget thinking about a five-word answer and returns nothing —
+> measured with `qwen3:4b`, still thinking at 1024 tokens after 86 seconds.
+> `llama3.2:3b` or `qwen2.5:3b` answer in one shot. The app detects the
+> overflow and names the remedy rather than showing a blank readout.
+
 ### Running the agent locally
 
 ```bash
 docker compose up -d                              # app + Ollama sidecar (GPU)
-docker compose exec ollama ollama pull qwen3:4b   # any tool-capable model
+docker compose exec ollama ollama pull qwen3:4b     # agent, needs tool calling
+docker compose exec ollama ollama pull llama3.2:3b  # HUD summary, needs instruct
 ```
 
 Then open `http://localhost:4173` and pick **Ollama** in the panel.

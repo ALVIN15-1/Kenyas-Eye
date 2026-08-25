@@ -4,7 +4,8 @@
 #   docker compose --profile hosted up -d   # app only, for OpenAI/OpenRouter
 #
 # Then pull a tool-capable model once:
-#   docker compose exec ollama ollama pull qwen3:4b
+#   docker compose exec ollama ollama pull qwen3:4b      # agent (tool calling)
+#   docker compose exec ollama ollama pull llama3.2:3b   # HUD summary (instruct)
 #
 # Open http://localhost:4173.
 
@@ -28,10 +29,27 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434/v1
       GEV_AGENT_PROVIDER: ${GEV_AGENT_PROVIDER:-ollama}
       GEV_AGENT_MODEL_OLLAMA: ${GEV_AGENT_MODEL_OLLAMA:-qwen3:4b}
+      # The HUD summary needs a NON-reasoning model. It defaults to the agent
+      # model otherwise, and a reasoning model spends its entire output budget
+      # thinking about a five-word readout and returns nothing (measured: still
+      # thinking at 1024 tokens after 86s). Small instruct model instead.
+      GEV_HUD_MODEL_OLLAMA: ${GEV_HUD_MODEL_OLLAMA:-llama3.2:3b}
     volumes:
       # Survives restarts so the TomTom budget counter and cached TLEs are not
       # re-fetched, and the daily allowance is not re-spent.
       - gev-cache:/app/.gev-cache
+      # This runs a DEV server, so the source is bind-mounted: without it every
+      # edit needs an image rebuild and hot reload cannot work at all, which
+      # defeats the point of running vite rather than a build.
+      - ./src:/app/src:ro
+      - ./index.html:/app/index.html:ro
+      - ./style.css:/app/style.css:ro
+      - ./vite.config.js:/app/vite.config.js:ro
+      - ./public:/app/public:ro
+      - ./config:/app/config:ro
+      # node_modules stays the image's own: the host tree may be absent, or
+      # built for a different platform.
+      - /app/node_modules
     depends_on:
       - ollama
     restart: unless-stopped
