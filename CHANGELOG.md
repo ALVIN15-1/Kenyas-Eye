@@ -46,6 +46,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Security
 
+- The `/api/google/text-search` proxy now rejects out-of-range coordinates
+  (latitude outside [-90, 90] or longitude outside [-180, 180]) with a 400
+  before contacting Google, so invalid input can no longer reach the
+  quota-bearing Places request.
 - Production transitive dependencies resolve to patched DOMPurify and
   protobufjs releases without changing the Cesium version or application APIs.
 - Production dependency audit reports no known advisories; remaining audit
