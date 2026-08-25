@@ -22,7 +22,7 @@ Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic,
 
 <div align="center">
 
-**[Quick Start](#-quick-start) · [First Five Minutes](#-the-first-five-minutes) · [Talk to It](#-talk-to-it) · [What's Live](#-whats-on-the-globe) · [Under the Hood](#-under-the-hood) · [Keys & Costs](#-api-keys)**
+**[Quick Start](#-quick-start) · [First Five Minutes](#-the-first-five-minutes) · [Talk to It](#-talk-to-it) · [Type to It](#-type-to-it) · [What's Live](#-whats-on-the-globe) · [Under the Hood](#-under-the-hood) · [Keys & Costs](#-api-keys)**
 
 </div>
 
@@ -166,6 +166,46 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 
 ---
 
+## ⌨️ Type to It
+
+> Prefer typing, or want the agent to run entirely on your own hardware? The **AI AGENT** panel takes the same 28 tools over typed text, against **OpenAI**, **OpenRouter**, or a local **Ollama**. Voice is untouched and the two run side by side.
+
+Same agent, different transport. `fly to Tokyo`, `turn on the flights layer`, `switch to night vision`, `how many flights are over Texas?` — the panel shows each tool call as it runs and tags it with the result.
+
+| | Provider | What you get | Key |
+|---|---|---|---|
+| 🔴 | **OpenAI** | The same models the voice agent uses | reuses `OPENAI_API_KEY` |
+| 🔴 | **OpenRouter** | ~330 tool-capable models behind one key, with live pricing in the picker | `OPENROUTER_API_KEY` |
+| 🟢 | **Ollama** | Fully local. No key, no signup, no data leaving the box | none |
+
+The model picker populates itself from whichever provider you select, so pulling a bigger model into Ollama makes it appear with no config change. Models are filtered to those that support tool calling and have room for the tool prefix.
+
+**Cost.** Typed commands are dramatically cheaper than voice, because audio tokens are what cost money. A command runs roughly **$0.0002 to $0.0008** on a small hosted model, against roughly **$0.10 to $0.30 per minute** of open-mic voice. On Ollama it is free.
+
+### Running the agent locally
+
+```bash
+docker compose up -d                              # app + Ollama sidecar (GPU)
+docker compose exec ollama ollama pull qwen3:4b   # any tool-capable model
+```
+
+Then open `http://localhost:4173` and pick **Ollama** in the panel.
+
+> [!IMPORTANT]
+> **Set `OLLAMA_CONTEXT_LENGTH` to at least 16384.** This app sends a ~11,300-token prefix (the operating manual plus 28 tool schemas) on every request. Ollama's stock window is 4096, which silently truncates the tool list — the request still returns HTTP 200, and the model then improvises malformed calls that look like stupidity rather than a config error. `compose.yaml` sets this for you; if you run Ollama yourself, set it yourself. The app detects the truncation and tells you what to fix.
+
+Measured on an 8 GB card (RTX 3070) with `qwen3:4b`:
+
+| Context | Result |
+|---|---|
+| 4096 (stock) | ❌ prefix truncated, tool calling broken |
+| **16384** | ✅ 5.4 GB, entirely on GPU, correct tool calls |
+| 32768 | ⚠️ 8.0 GB, spills to CPU, unusably slow |
+
+Budget for your desktop too: X11 and a browser rendering the globe can hold 1 to 2 GB of the same card, so on 8 GB the model and the app compete. A smaller model or a second machine for Ollama both fix it.
+
+---
+
 ## 🛰️ What's on the Globe
 
 Thirteen live layers. **Ten of them need nothing at all** — no key, no account, no signup. (🟢 nothing · 🟡 free key · 🔴 metered.)
@@ -252,6 +292,7 @@ src/
 ├── mapStackController.js   # Google 3D / Bing / OSM switching
 ├── iconOrientation.js      # Screen-projected world-space headings + horizon cull
 ├── voice/                  # OpenAI Realtime session + 28 voice tools
+├── agent/                  # Typed console: provider registry, tool loop, panel
 ├── data/                   # One module per layer + management + context store
 │   └── local_data/         # Bundled datasets (per-folder provenance)
 └── scenes/                 # Cinematic scene director

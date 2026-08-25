@@ -1577,6 +1577,16 @@ Historical planning documents may not match runtime behavior.
 - Layer management in `src/data/manager.js`
 - Map stack switching in `src/mapStackController.js`
 - Voice control in `src/voice/` (OpenAI Realtime over WebRTC)
+- Typed agent console in `src/agent/` (OpenAI-compatible chat completions over
+  OpenAI, OpenRouter, or a local Ollama). Shares the 28 tools and the operating
+  manual with voice; the manual itself lives in `src/agent/instructions.js` and
+  differs between transports only in five channel-specific directives.
+  Server relay is `/api/agent/config`, `/api/agent/models`, and
+  `/api/agent/command`; credentials stay server-side and the browser executes
+  the tools because they drive its own viewer. Malformed tool calls are
+  corrected server-side, since Ollama's compatible endpoint has no
+  `tool_choice`. A provider that truncates the ~11,300-token tool prefix is
+  detected from the returned prompt token count and reported with its remedy.
 - Voice map whiteboard annotations in `src/annotations/`
 - 3D aircraft/model tracking surfaces in `src/data/flights.js` and `src/data/militaryFlights.js`
 - Detection overlay and tracked-target readout in `src/data/detection.js`, `src/data/detectionDraw.js`, and `src/data/trackedReadout.js`
@@ -2572,6 +2582,11 @@ Replay transport uses one Play/Pause toggle plus Cancel. During ascent only the 
   (`QA_BASE_URL=http://localhost:4173 npm run qa:map-source-tray`). Add
   `-- --keyless` to force the no-ion-token expectations on a keyed server; both
   invocations are gates.
+- `scripts/qa-agent-panel.mjs`: browser proof for the typed agent console —
+  mount into the panel stack, provider and model population from the live
+  endpoints, and one typed command carried through the tool loop to a real
+  state change (`GEV_URL=http://localhost:4173 npm run qa:agent-panel`).
+  Defaults to the Ollama provider because it needs no credential.
 - `scripts/qa-l9-matrix.mjs`: the L9 release-candidate QA matrix in one command
   (`node scripts/qa-l9-matrix.mjs --url http://localhost:4173`). Orchestrates
   the `qa-*.mjs` fleet plus `track-regression` as subprocesses and adds
