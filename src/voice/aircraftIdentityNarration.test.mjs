@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { gevDirectives } from '../agent/instructions.js';
 import test from 'node:test';
 
-const voiceConfig = readFileSync(new URL('../../vite.config.js', import.meta.url), 'utf8');
 const realtime = readFileSync(new URL('./gevRealtime.js', import.meta.url), 'utf8');
 
 test('aircraft identity narration acknowledges missing enrichment', () => {
-  const start = voiceConfig.indexOf("'For \"what is this aircraft?\" answers");
-  assert.ok(start >= 0, 'aircraft identity honesty instruction is missing');
-  const text = voiceConfig.slice(start, voiceConfig.indexOf('\n', start));
+  // The manual moved to src/agent/instructions.js and is shared with the text
+  // transport; pinning the live directive proves the shared copy still carries
+  // the honesty rules rather than pinning one transport's source encoding.
+  const text = gevDirectives({ modality: 'voice' })
+    .find((directive) => directive.startsWith('For \"what is this aircraft?\" answers'));
+  assert.ok(text, 'aircraft identity honesty instruction is missing');
   assert.match(text, /get_entity_context selected\.properties/);
   assert.match(text, /callsign, operator, registration, type, and route/);
   assert.match(text, /route, routeOrigin, and routeDestination as the only authoritative route fields/);
