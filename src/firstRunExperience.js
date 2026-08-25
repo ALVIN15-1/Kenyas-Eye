@@ -401,6 +401,7 @@ export function initFirstRunExperience({
     rememberFirstRunSessionDismissed(sessionStorageRef);
     root.classList.remove('visible');
     root.setAttribute('aria-hidden', 'true');
+    documentRef.body?.classList?.remove('first-run-focus');
     documentRef.removeEventListener('keydown', onKeyDown, true);
     globalThis.removeEventListener?.('resize', onViewportResize);
     surfaceObserver?.disconnect();
@@ -561,6 +562,7 @@ export function initFirstRunExperience({
     if (revealed || closing) return;
     revealed = true;
     root.hidden = false;
+    documentRef.body?.classList?.add('first-run-focus');
     globalThis.requestAnimationFrame?.(() => {
       if (closing) return;
       root.classList.add('visible');

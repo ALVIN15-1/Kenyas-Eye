@@ -4386,6 +4386,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   align-items: flex-start;
   gap: 8px;
   pointer-events: none;
+  contain: layout paint;
   transition: top var(--transition-fast), bottom var(--transition-fast);
 }
 
@@ -4498,6 +4499,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   align-items: flex-end;
   gap: 8px;
   pointer-events: none;
+  contain: layout paint;
   transition: top var(--transition-fast), max-height var(--transition-fast);
 }
 #right-context-rail > #pp-toggles,
@@ -9151,6 +9153,179 @@ body.scene-playback-mode #first-run-launcher {
   to {
     -webkit-mask-image: linear-gradient(to bottom, #000 100%, transparent 100%);
     mask-image: linear-gradient(to bottom, #000 100%, transparent 100%);
+  }
+}
+
+/* ── First-run focus and clutter reduction ──────────────────────────────
+   The launcher is the only first-run task. While it is up, hide secondary
+   chrome instead of asking it to compete with every panel, chip, dock, and HUD
+   at once. This is distinct from ui-clean-view: it is temporary onboarding
+   focus, not a user-selected display mode. */
+body.first-run-focus #title-bar,
+body.first-run-focus #style-indicator,
+body.first-run-focus #top-center-actions,
+body.first-run-focus #global-loading-status,
+body.first-run-focus #traffic-sync-chip,
+body.first-run-focus #cctv-sync-chip,
+body.first-run-focus #left-panel-stack,
+body.first-run-focus #right-context-rail,
+body.first-run-focus #data-panel,
+body.first-run-focus #scene-panel,
+body.first-run-focus #cctv-panel,
+body.first-run-focus #global-context-panel,
+body.first-run-focus #radio-panel,
+body.first-run-focus #pp-toggles,
+body.first-run-focus #control-panel,
+body.first-run-focus #location-bar,
+body.first-run-focus #command-dock,
+body.first-run-focus #intel-hud,
+body.first-run-focus .gev-screen-whiteboard {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: opacity 0.16s ease, visibility 0.16s ease;
+}
+
+body.first-run-focus #first-run-launcher {
+  z-index: 210;
+  box-shadow:
+    0 28px 72px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(120, 230, 255, 0.16) inset;
+}
+
+body.first-run-focus::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 170;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(0, 212, 255, 0.09), transparent 34%),
+    linear-gradient(180deg, rgba(2, 5, 10, 0.24), rgba(2, 5, 10, 0.72));
+}
+
+body.first-run-focus #cesium-credits {
+  filter: saturate(0.85);
+}
+
+.first-run-arrow.material-symbols-outlined {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+  overflow: visible;
+  text-align: center;
+}
+
+/* Bottom dock: collapsed trays should read as compact controls, not clipped
+   mini-panels. Expanded popovers keep the full labels. */
+#command-dock {
+  max-width: min(calc(100vw - 32px), 520px);
+  justify-content: center;
+  overflow: visible;
+}
+
+#command-dock .panel-collapsible.collapsed {
+  overflow: hidden;
+}
+
+#command-dock .panel-collapsible.collapsed :is(.location-toolbar-label, .panel-title, .pp-title) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+#gev-voice-control {
+  flex: 0 0 auto;
+}
+
+.gev-voice-heading {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The sync chips are diagnostics. Keep them quiet unless a layer explicitly
+   makes them visible, and do not animate split-flaps while the onboarding card
+   owns the screen. */
+body.first-run-focus .gev-flap-cell,
+body.first-run-focus .gev-flap-cell::before,
+body.first-run-focus .gev-flap-cell::after {
+  animation: none !important;
+}
+
+/* Mobile = one drawer surface, not left+right rails plus a dock plus a modal. */
+@media (max-width: 620px) {
+  #title-bar {
+    max-width: min(62vw, 234px);
+    overflow: hidden;
+  }
+
+  #top-center-actions {
+    top: 78px;
+  }
+
+  #style-indicator {
+    right: 16px;
+    top: 22px;
+  }
+
+  #left-panel-stack,
+  #right-context-rail {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: none;
+    align-items: stretch;
+  }
+
+  #left-panel-stack {
+    top: auto;
+    bottom: 5.75rem;
+    max-height: min(42vh, 340px);
+  }
+
+  #left-panel-stack:not(.layout-focus) > [data-panel-id].collapsed,
+  #right-context-rail:not(.layout-focus) > [data-panel-id].collapsed {
+    display: none;
+  }
+
+  #left-panel-stack > [data-panel-id]:not(.collapsed),
+  #right-context-rail > [data-panel-id]:not(.collapsed) {
+    width: 100% !important;
+    max-width: none;
+    max-height: inherit;
+    flex: 1 1 auto;
+  }
+
+  #command-dock {
+    width: auto;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 28px);
+    gap: 4px;
+    padding: 4px;
+  }
+
+  #command-dock .panel-collapsible.collapsed {
+    width: 52px !important;
+    min-width: 52px;
+  }
+
+  #command-dock .panel-collapsible.collapsed :is(.location-toolbar-label, .panel-title, .pp-title) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  #gev-voice-control {
+    transform: scale(0.92);
+    transform-origin: center bottom;
   }
 }
 

@@ -178,6 +178,25 @@ test('no storage is touched from a default parameter position', () => {
   assert.match(code, /function writeStored\(kind, injected, key, value\)/);
 });
 
+test('first-run focus class gates the onboarding-only quiet UI state', () => {
+  const module = fs.readFileSync(new URL('./firstRunExperience.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+
+  assert.match(module, /documentRef\.body\?\.classList\?\.add\('first-run-focus'\)/);
+  assert.match(module, /documentRef\.body\?\.classList\?\.remove\('first-run-focus'\)/);
+  assert.match(css, /body\.first-run-focus #first-run-launcher/);
+  for (const selector of [
+    '#left-panel-stack',
+    '#right-context-rail',
+    '#command-dock',
+    '#intel-hud',
+    '#traffic-sync-chip',
+    '#cctv-sync-chip',
+  ]) {
+    assert.match(css, new RegExp(`body\\.first-run-focus ${selector.replace('#', '#')}`));
+  }
+});
+
 // ── ESC arbitration: one surface, one key, never an invisible handler ────────
 
 test('the JS and CSS lists of screen-claiming surfaces stay in step', () => {
