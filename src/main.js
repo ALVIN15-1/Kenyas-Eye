@@ -19,6 +19,8 @@ import { LAYER_STATE_REGISTRY } from './data/layerState.js';
 import { registerDataCredits } from './data/dataCredits.js';
 import { SceneDirector } from './scenes/director.js';
 import { initGevVoiceCommands } from './voice/gevRealtime.js';
+import { createGevActionRunner } from './voice/gevActions.js';
+import { mountAgentPanel } from './agent/agentPanel.js';
 import { MapStackController } from './mapStackController.js';
 import { initAnnotations } from './annotations/index.js';
 import { initLogoGaze } from './logoGaze.js';
@@ -325,6 +327,13 @@ async function init() {
       requestRender: governorRequestRender,
     };
     window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
+
+    // The typed console drives the same action runner as voice. Both factories
+    // are idempotent for a given viewer, so a second runner shares the camera
+    // verb bindings rather than re-registering them.
+    window.__godsEyeView.agentPanel = mountAgentPanel({
+      runAction: createGevActionRunner({ viewer, styleManager, dataManager, sceneDirector, annotations }),
+    });
 
   } catch (error) {
     console.error("God's Eye View initialization failed:", error);

@@ -9161,3 +9161,197 @@ body.scene-playback-mode #first-run-launcher {
   /* Scrolling a tile into view must not animate either. */
   .first-run-choices { scroll-behavior: auto; }
 }
+
+/* ── AI Agent panel ─────────────────────────────────────────────────────────
+   Typed-command console. Mirrors the scene panel's glass chrome so the two
+   read as siblings, and borrows the voice widget's header idiom where the
+   model selector and a live cost readout sit with the title. */
+
+.agent-panel-inner {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--panel-radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-height: calc(100vh - 24px);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.agent-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+#agent-provider,
+#agent-model {
+  width: 100%;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-primary);
+  padding: 6px 8px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+}
+
+#agent-provider:disabled,
+#agent-model:disabled {
+  opacity: 0.5;
+}
+
+.agent-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 120px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 2px 6px;
+  margin-bottom: 8px;
+}
+
+.agent-transcript::-webkit-scrollbar {
+  width: 6px;
+}
+
+.agent-transcript::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.agent-entry {
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-entry-user {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.agent-entry-agent {
+  background: rgba(90, 200, 250, 0.08);
+  border: 1px solid rgba(90, 200, 250, 0.22);
+  color: var(--text-primary);
+}
+
+/* Tool lines are chrome, not conversation: monospace, dim, and tagged with the
+   result so a multi-tool turn is legible at a glance. */
+.agent-entry-tool {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+
+.agent-entry-tool::after {
+  content: attr(data-outcome);
+  float: right;
+  opacity: 0.7;
+  margin-left: 8px;
+}
+
+.agent-entry-tool[data-outcome^="failed"] {
+  border-color: rgba(255, 96, 96, 0.4);
+  color: rgba(255, 150, 150, 0.9);
+}
+
+.agent-entry-error {
+  background: rgba(255, 68, 68, 0.1);
+  border: 1px solid rgba(255, 68, 68, 0.32);
+  color: #ff9a9a;
+  font-size: 11px;
+}
+
+.agent-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#agent-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-primary);
+  padding: 7px 9px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+#agent-input:focus {
+  border-color: rgba(90, 200, 250, 0.5);
+}
+
+#agent-input:disabled {
+  opacity: 0.5;
+}
+
+.agent-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.agent-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.agent-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.agent-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1.1px;
+  color: var(--text-secondary);
+}
+
+#agent-panel[data-agent-status="thinking"] #agent-status,
+#agent-panel[data-agent-status="running"] #agent-status {
+  color: rgba(90, 200, 250, 0.95);
+}
+
+#agent-panel[data-agent-status="unavailable"] #agent-status {
+  color: rgba(255, 150, 150, 0.9);
+}
