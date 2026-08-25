@@ -1572,7 +1572,14 @@ Historical planning documents may not match runtime behavior.
 
 ## Runtime Stack
 
-- Vite + CesiumJS app with Google Photorealistic 3D Tiles
+- Vite + CesiumJS app with Google Photorealistic 3D Tiles, authorized by EITHER
+  `GOOGLE_MAPS_API_KEY` (direct to the Map Tiles API) or `CESIUM_ION_TOKEN`
+  (CesiumJS streams an ion-hosted copy whenever `GoogleMaps.defaultApiKey` is
+  left undefined). Resolved in `src/mapCredentials.js`; the Google key wins when
+  both are set. The ion route loses Google geocoding, so place-name search and
+  reverse geocoding report unavailable while fixed-coordinate city presets still
+  work. Startup fails only when NEITHER credential is present. Route is asserted
+  at the network layer by `scripts/qa-tileset-route.mjs`.
 - Scene/HUD/style systems in `src/ui.js` and `src/hud.js`
 - Layer management in `src/data/manager.js`
 - Map stack switching in `src/mapStackController.js`
@@ -2572,6 +2579,10 @@ Replay transport uses one Play/Pause toggle plus Cancel. During ascent only the 
   (`QA_BASE_URL=http://localhost:4173 npm run qa:map-source-tray`). Add
   `-- --keyless` to force the no-ion-token expectations on a keyed server; both
   invocations are gates.
+- `scripts/qa-tileset-route.mjs`: proves which upstream serves the
+  photorealistic tileset (`GEV_URL=... EXPECT=ion|google|none npm run
+  qa:tileset-route`). Asserts at the network layer because the ion fallback is
+  invisible in the UI; a dummy ion token is sufficient to prove the routing.
 - `scripts/qa-l9-matrix.mjs`: the L9 release-candidate QA matrix in one command
   (`node scripts/qa-l9-matrix.mjs --url http://localhost:4173`). Orchestrates
   the `qa-*.mjs` fleet plus `track-regression` as subprocesses and adds
