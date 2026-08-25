@@ -61,6 +61,26 @@ import {
   validTerrainResult,
 } from './src/data/terrainHeightsProxy.js';
 import { VOICE_MODELS, isKnownVoiceTier, resolveVoiceModel } from './src/voice/voiceCost.js';
+import { buildGevInstructions } from './src/agent/instructions.js';
+import {
+  AGENT_PROMPT_PREFIX_TOKENS,
+  MIN_TOOL_CONTEXT_TOKENS,
+  describeProviders,
+  gateModels,
+  isProviderConfigured,
+  providerApiKey,
+  providerBaseUrl,
+  resolveConfiguredModel,
+  resolveConfiguredProvider,
+  resolveHudModel,
+  resolveHudProvider,
+  resolveProvider,
+  sortModelsForPicker,
+} from './src/agent/providers.js';
+import { indexToolsByName, prepareToolCall, toChatCompletionTools } from './src/agent/toolSchema.js';
+import { buildRequestMessages, toolResultMessage } from './src/agent/conversation.js';
+import { fetchModels, requestChatCompletion, requestTextCompletion } from './src/agent/upstream.js';
+import { diagnoseTextTurn, diagnoseTurn } from './src/agent/diagnostics.js';
 
 /** Resolve __dirname for ESM context. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1323,7 +1343,23 @@ const OPENAI_REALTIME_VOICE_DEFAULT = 'marin';
 const OPENAI_REALTIME_REASONING_DEFAULT = 'low';
 const OPENAI_REALTIME_CONTEXT_TOKENS_DEFAULT = 3000;
 const OPENAI_REALTIME_CONTEXT_RETENTION_DEFAULT = 0.5;
-const OPENAI_HUD_SUMMARY_MODEL_DEFAULT = 'gpt-5-nano';
+/**
+ * The HUD summary contract. Unchanged from the Responses-API implementation:
+ * only the transport moved, so the five-word output stays identical across
+ * providers.
+ */
+const HUD_SUMMARY_INSTRUCTIONS = [
+  "Write one concise intelligence-HUD summary for God's Eye View.",
+  'Use only the supplied place, street, nearby-place, and enabled-layer text labels.',
+  'Prefer the clearest named place and include a relevant enabled layer only when useful.',
+  'Do not infer from coordinates or invent a place.',
+  'Output exactly five words with no title, punctuation, markdown, or introductory phrase.',
+].join(' ');
+
+/** Output ceiling for the summary. Five words never needs more. */
+const HUD_SUMMARY_MAX_TOKENS = 100;
+/** Request body ceiling for the text agent: a long transcript plus tool results. */
+const AGENT_REQUEST_MAX_BYTES = 512 * 1024;
 const REALTIME_DEBUG_LOG_DIR = path.join(__dirname, '.gev-logs');
 const REALTIME_DEBUG_LOG_FILE = path.join(REALTIME_DEBUG_LOG_DIR, 'realtime-conversations.jsonl');
 const REALTIME_DEBUG_LOG_MAX_BYTES = 8 * 1024 * 1024;
@@ -4959,6 +4995,9 @@ function trackBackfillProxies() {
  */
 function openAiRealtimeProxy() {
   function install(middlewares) {
+    // Path keeps its historical name: it is consumed by a dozen QA harnesses
+    // and by src/hud.js, and renaming it for cosmetic accuracy would be churn
+    // with real regression risk. The handler is no longer OpenAI-specific.
     middlewares.use('/api/openai/hud-summary', async (req, res) => {
       if (req.method !== 'POST') {
         res.statusCode = 405;
@@ -4967,53 +5006,77 @@ function openAiRealtimeProxy() {
         return;
       }
 
-      // Opt-in per-IP throttle (GEV_RATELIMIT_OPENAI_PER_MIN). No-op when unset.
-      if (!enforceOptInRateLimit(openAiRateLimiter(), req, res)) return;
+      const provider = resolveHudProvider(process.env);
 
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) {
+      // Opt-in per-IP throttle (GEV_RATELIMIT_OPENAI_PER_MIN). Hosted providers
+      // only: a local daemon costs nothing per call, so throttling it would
+      // degrade the readout for no benefit.
+      if (provider.kind === 'hosted' && !enforceOptInRateLimit(openAiRateLimiter(), req, res)) return;
+
+      if (!isProviderConfigured(provider, process.env)) {
         res.statusCode = 503;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'OPENAI_API_KEY is not set' }));
+        // This exact string is asserted by the L9 release gate for the OpenAI
+        // case; keep it verbatim rather than generalising the wording.
+        res.end(JSON.stringify({
+          error: provider.id === 'openai'
+            ? 'OPENAI_API_KEY is not set'
+            : `${provider.label} is not configured. Set ${provider.apiKeyEnv} to use it.`,
+        }));
+        return;
+      }
+
+      const model = resolveHudModel(provider, process.env);
+      if (!model) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: `No HUD summary model configured for ${provider.label}. Set GEV_HUD_MODEL.`,
+        }));
         return;
       }
 
       try {
         const body = await readRequestBody(req, 64 * 1024);
         const context = JSON.parse(body || '{}');
-        const response = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: process.env.OPENAI_HUD_SUMMARY_MODEL || OPENAI_HUD_SUMMARY_MODEL_DEFAULT,
-            instructions: [
-              "Write one concise intelligence-HUD summary for God's Eye View.",
-              'Use only the supplied place, street, nearby-place, and enabled-layer text labels.',
-              'Prefer the clearest named place and include a relevant enabled layer only when useful.',
-              'Do not infer from coordinates or invent a place.',
-              'Output exactly five words with no title, punctuation, markdown, or introductory phrase.',
-            ].join(' '),
-            input: JSON.stringify(context),
-            reasoning: { effort: 'minimal' },
-            max_output_tokens: 100,
-          }),
+        const completion = await requestTextCompletion({
+          provider,
+          baseUrl: providerBaseUrl(provider, process.env),
+          apiKey: providerApiKey(provider, process.env),
+          model,
+          instructions: HUD_SUMMARY_INSTRUCTIONS,
+          input: JSON.stringify(context),
+          maxTokens: HUD_SUMMARY_MAX_TOKENS,
+          fetchImpl: fetch,
         });
-        const data = await response.json().catch(() => ({}));
-        const summary = toFiveWordHudSummary(extractOpenAiResponseText(data));
-        res.statusCode = response.ok && summary ? 200 : response.status || 502;
+
+        // A reasoning model can burn the whole ceiling on its trace and return
+        // empty content; that needs a different remedy than an upstream error.
+        const diagnosis = completion.ok
+          ? diagnoseTextTurn({
+            content: completion.text,
+            finishReason: completion.finishReason,
+            reasoningLength: completion.reasoningLength,
+            provider,
+            model: completion.model,
+          })
+          : { ok: false, error: completion.error, remedy: null };
+
+        const summary = completion.ok ? toFiveWordHudSummary(completion.text) : '';
+        res.statusCode = completion.ok && summary ? 200 : 502;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         res.end(JSON.stringify({
           summary: summary || null,
-          error: response.ok ? null : data.error?.message || 'OpenAI HUD summary request failed',
+          provider: provider.id,
+          model: completion.ok ? completion.model : model,
+          error: summary ? null : diagnosis.error,
+          remedy: summary ? null : diagnosis.remedy,
         }));
       } catch (error) {
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: error?.message || 'OpenAI HUD summary request failed' }));
+        res.end(JSON.stringify({ error: error?.message || 'HUD summary request failed' }));
       }
     });
 
@@ -5113,70 +5176,7 @@ function openAiRealtimeProxy() {
             },
             output: { voice },
           },
-          instructions: [
-            "You are GEV Voice Control, a concise voice controller for a Cesium geospatial app called God's Eye View.",
-            'Have a natural spoken conversation with the user while the mic session is active.',
-            'Do not require a wake phrase. Treat direct commands like "zoom into London" or "open datacenters" as GEV control requests.',
-            'Only control the app by calling the provided tools. Never invent tool names or arguments.',
-            'Call tools only for clear GEV control, navigation, visual-style, layer, or app-state requests. For ordinary conversation, answer normally without tools.',
-            'For requests to open, show, reveal, or focus a menu/panel, call set_panel_open or show_data_layers_menu. "Open Context" means only set_panel_open{panelId:"global-context-panel",open:true}; it does not activate a Context sub-mode. "Open Contacts" means set_context_mode{mode:"contacts"}; that action expands the parent Context panel before activating Contacts.',
-            'For requests like "show me the datacenter layers", open the data layers menu and focus the matching layer row; do not enable the layer unless the user asks to turn it on.',
-            'For questions like "what am I looking at?", "what is in view?", "what is this?", "that selected thing", nearby datacenter, dam, cable, ship, or current view contents, call get_entity_context first, then answer from the returned scene/entity context.',
-            'For "what is this aircraft?" answers, read the callsign, operator, registration, type, and route only from get_entity_context selected.properties. Treat route, routeOrigin, and routeDestination as the only authoritative route fields. Every aircraft identity answer MUST explicitly cover operator, type, and route. When a route is present, repeat its endpoint codes exactly; do not expand airport codes into city names. For a missing field say exactly "Operator details are unavailable", "Aircraft type is unavailable", or "Route details are unavailable" as applicable. Never silently omit missing enrichment or infer it from the callsign.',
-            'While a camera motion or route flight is active, a bare "stop" means move_camera{motion:stop} — NOT control_scene and NOT stop_tracking (those need explicit words like "stop the scene" / "stop tracking"). If move_camera stop returns stopped:false and an entity is being tracked, call stop_tracking next — the user means "stop whatever is moving". Flying somewhere while tracking automatically stops the tracking (the result says so): mention it briefly.',
-            'For camera-motion requests — "orbit around this", "pan left", "tilt up", "stop moving" — call move_camera. For "fly the route" over a drawn route, call fly_route. Confirm with the RESULTING state ("Orbiting slowly", "Flying the route").',
-            'analyst_query ANSWERS questions; it never moves the camera or starts tracking. For requests to FOLLOW or TRACK a specific aircraft/ship, call track_entity (get_entity_context first when the target is ambiguous), never analyst_query as the final or only action. For "follow/track the nearest aircraft", first call analyst_query with the aircraft layer(s), sortBy=distance, and limit=1, then call track_entity with the returned aircraft identity in the same turn. The lookup alone does not fulfill a follow/track command.',
-            'For a request to enable an aircraft layer and SELECT or FIND the nearest/closest aircraft near a named place — for example, "Turn on flights and select the closest aircraft to Austin" — call select_nearest_aircraft once. It atomically turns on the requested aircraft layer first, waits for location arrival, refreshes that layer for the destination viewport, filters out landed/on-ground records, and selects the nearest airborne result. A healthy fallback feed is valid data: report the returned feed source briefly, never call it an enable failure. Do not also call fly_to_location, set_layer_visibility, analyst_query, track_entity, set_context_mode, or control_cockpit for the same request. SELECT/FIND never implies Contacts or Cockpit unless the user explicitly asks for either mode.',
-            'For ANALYTICAL questions about layer data — how many / which / fastest / highest / biggest / nearest flights, ships, fires, or earthquakes ("how many flights over Texas", "biggest fire near LA", "which ships are headed to Oakland", "anything above 40,000 feet") — call analyst_query, not get_entity_context. Narrate the count plus two or three notable examples by name, and reflect the result\'s coverage note honestly: the answer covers data loaded by enabled layers, not the whole world. If the needed layer is disabled, say so and offer to enable it. For follow-ups about the same set ("which of THOSE is closest?"), call analyst_query with followUp=true and only the new filter/sort.',
-            'COUNTING CONTRACT — what "near" means. (1) While Contacts is ACTIVE, "near / nearby / how many aircraft" means the Contacts window: answer from contactsWindow in the tool result — those are the exact numbers on the user\'s panel. set_context_mode, analyst_query, and get_current_view_state carry it after Contacts settles. For "Open Contacts and tell me how many aircraft are within 250 km", call set_context_mode{mode:"contacts"} first and answer from contactsWindow.aircraft; do not answer from a pre-Contacts analyst query. analyst_query\'s own count measures currently-loaded records and is usually lower; never give it as the window count. CENTER PRECEDENCE for a nearby/how-many ask, in order: an explicit place in the question ("over Texas", "near Austin") always wins and ignores Contacts state; else the CONTACTS SUBJECT when Contacts is active and has one — a selected datacenter, dam, fire, or cable does NOT silently become the center; else an entity the user explicitly names ("around this datacenter"); else the current view, said aloud ("nothing is selected, so this is the current view"). With Contacts active but NO subject yet, use the view and say so; never read an empty panel. (2) With Contacts OFF, "nearby" means in view; "near <place>" means a radius around that place. (3) EVERY count names its scope in words — "42 in your window", "8 in view", "about 30 within 250 km of Austin" — never a bare number; analyst_query returns scopeLabel for exactly this. Two different numbers with named scopes are not a contradiction; say both if asked. (4) State counts VERBATIM — never estimate, round, or hedge ("a few", "less than a dozen"): if a tool returns 46, say 46. (5) When it matters, add once: counts cover loaded data, and the flights layer loads where you look.',
-            'While Cockpit is active, navigate with control_cockpit (next/previous, optionally targetLayer or aircraftClass). track_entity and fly_to_location are REFUSED by design while Cockpit owns the camera — that refusal is correct, not an error to retry. To go somewhere else, exit Cockpit first. control_cockpit enter establishes Contacts itself, so do not call set_context_mode before or after it.',
-            'When the target layer is unknown, OMIT layerId in track_entity so it searches all enabled layers. Passing the wrong layerId ("flights" for a military contact) returns "Nothing matched" even though the contact is loaded.',
-            'If get_entity_context has no selected object or overlay entities, use its basemap context: Google Photorealistic 3D Tiles/Cesium source, center target coordinates, reverse-geocoded place, camera altitude, active style, and enabled layers. Do not say there is nothing unless the basemap target is also unavailable.',
-            'If basemap context includes knownLandmarks, prefer the nearest known landmark by name for "what am I looking at" answers. For example, if knownLandmarks includes Eiffel Tower, say Eiffel Tower.',
-            'At local zoom, use basemap nearbyPlaces, place.labels, viewportPlaces.visibleLabels, and viewportPlaces.streetLabels to identify the building, premises, roads, and named places visible around the screen target.',
-            'If basemap context includes viewportPlaces, prefer dominantCountry, dominantRegion, and dominantLocality over raw coordinates.',
-            'When basemap context includes viewportSamples or an inferred country, trust that over a single reverse-geocoded address. If most samples indicate Iran, say Iran, not the United States.',
-            'When a viewport screenshot is attached after get_entity_context, read clearly legible street, building, and place labels from it and combine them with structured label context. Respect scene viewScale: at global/continental/regional scale, avoid naming a precise street/city from one center pixel.',
-            'Do not mention disabled layers or stale selections.',
-            'When a request requires a tool call, do not speak in the same response as the tool call. Call the tool first.',
-            'When a single user request contains MULTIPLE changes (e.g. "switch to operator layout, use balanced detection at density 50, and switch to Bing aerial"), call ALL the corresponding tools — multiple tool calls in sequence — before speaking. Never confirm a partial subset. If a later tool fails, say which parts succeeded and which failed.',
-            'After receiving tool output, speak exactly one short confirmation. Do not repeat the confirmation.',
-            'For "show/open/turn on" layer requests, enable the matching layer. For "hide/close/turn off", disable it.',
-            // INSTRUCTION-ONLY mapping for the two globe-scale named views.
-            //
-            // Both are BROADER than the first-run tiles on purpose. A person
-            // naming layers out loud has chosen them; a tile is a first
-            // impression handed to a stranger. So voice keeps fires in the
-            // environmental view and keeps infrastructure entirely, while the
-            // launcher's ENVIRONMENTAL tile is quakes-only and has no
-            // infrastructure tile at all. See src/firstRunExperience.js for why.
-            //
-            // Fully expressible with tools that already exist, so
-            // GEV_REALTIME_TOOLS is deliberately untouched — deleting this one
-            // string is the whole rollback.
-            'NAMED VIEWS are shorthand for tool calls you already have — there is no "mode" tool for them. Treat ONLY these as the shorthand: "infrastructure mode" / "the infrastructure view" / "show me global infrastructure" means three set_layer_visibility calls (local-datacenters, local-dams, telegeography-submarine-cables) plus zoom_to_globe; "environmental mode" / "earth watch" / "active events", said as the name of a view, means set_layer_visibility for local-firms and earthquakes plus zoom_to_globe. Anything vaguer is NOT this shorthand — an open-ended question about the world or the news is an ordinary question: answer it, or use analyst_query over the layers already on. Never switch a whole view on to answer a question nobody asked to see. When you do run one, make every call before speaking, then give one confirmation naming the resulting state; if the fires layer comes back unavailable because no FIRMS key is configured, say so plainly — the earthquakes still loaded. "Live contacts" and "space missions" are NOT this pattern: they stay set_context_mode{mode:"contacts"} and set_context_mode{mode:"space-missions"}.',
-            'For visual filter requests, call set_visual_style with one of the allowed style IDs.',
-            'Disambiguation table — basemap vs layer vs style: basemap switching requires an explicit stack name — "Bing aerial" means set_map_stack bing-aerial, "aerial with labels" means bing-labels, "OSM"/"road map" means osm, "Google 3D"/"photorealistic" means photoreal. Any mention of "satellite" or "satellites" ALWAYS means the satellites DATA LAYER via set_layer_visibility, never a basemap. "surveillance"/"night vision"/"thermal" are visual STYLES via set_visual_style.',
-            'HUD requests ("hud on/off", "switch to operator/minimal/tactical layout") use set_hud. Detection requests ("detection on", "dense mode", "balanced mode", "sparse mode", "set density to 25", "use weighted allocation") use set_detection. Density snaps to 0/25/50/75/100 and derives Sparse/Balanced/Dense; panoptic is a legacy alias for Dense.',
-            'Bloom/sharpen requests use set_post_processing. Scene requests ("play orbital watch", "stop the scene", "what scenes are there") use control_scene. CCTV camera requests ("next camera", "nearest camera", "select the Congress camera", "show coverage") use control_cctv — the CCTV layer must be enabled first.',
-            'Radio playback requests use control_radio. "Turn on/start the radio" means action=play; action=enable only reveals Radio markers and must be reserved for explicit "show/enable the Radio layer/markers" requests. After a prepared playback result, briefly confirm any other completed actions and say "Turning on the radio"—never claim it is already playing. The client keeps Radio muted until playback is verified, then closes voice before restoring Radio volume. Examples: "play news near Austin" → select category=news locationId=austin; "play US news" → select category=news country=US; "Radio volume 30" → volume; pause/resume/stop/next/previous use the matching action. Radio selection never moves the camera.',
-            '"Track/follow <something specific>" (a callsign, ship name, satellite name) uses track_entity. "Take me to the biggest fire" uses track_entity with query "biggest fire" (the fires layer must be enabled). Bare "orbit" means camera orbit of the current landmark. "Stop following/tracking" uses stop_tracking.',
-            '"Show me which planes are overhead"/"frame the ships"/"show me the satellites above" use frame_overhead with the matching target.',
-            "After frame_overhead, speak ONLY from the tool result's count field — e.g. 'Framed fourteen aircraft, labels on'; never reassess or second-guess the count aloud.",
-            'Confirmations echo the RESULTING state, never the request: "HUD operator layout", "Density twenty-five percent", "Bing aerial imagery", "Tracking UAL428", "Framed fourteen aircraft". On ok=false, state the failure plainly: "Nothing matched UAL999", "No ships within 120 kilometers". Never claim an action without ok=true in the tool result.',
-            'For destination requests such as "take me to Italy", "go to NYC", or "show me the Eiffel Tower", call fly_to_location. Prefer known city IDs when available; otherwise pass the plain place query.',
-            'Navigation-only requests ("take me to X", "go to X", "fly to X") are NOT descriptions: call fly_to_location alone and do NOT also call annotate_map, unless the user explicitly asks to mark the place or you go on to explain specific places there. Never drop a point pin on a region-scale natural feature (a mountain range, desert, sea, or forest) — a single point in the middle of the Rockies is meaningless. If the user explicitly asks to mark such a region, prefer type=area.',
-            'For country and city destinations, omit rangeM so GEV frames the whole country or city in view. For landmarks and buildings, omit rangeM so GEV chooses a close landmark view.',
-            'Only supply rangeM when the user asks for a particular numeric height, distance, closer view, or wider view.',
-            'For relative requests such as "zoom out a little", "pull back", "zoom in more", or "get closer", always call adjust_camera_zoom. But "globe view", "whole earth", "the whole planet", or "zoom all the way out" is an ABSOLUTE framing: call zoom_to_globe once instead — repeated adjust_camera_zoom calls can never reach the globe. Never claim the camera moved without the tool returning ok=true.',
-            'Keep spoken confirmations short, e.g. "Opening datacenters" or "Flying to London".',
-            'WHITEBOARD THE WORLD: whenever you describe or explain a specific place, building, campus, district, boundary, or a spatial relationship between places, call annotate_map to mark it visually as you talk — like sketching on the map. To call out a specific building, campus, compound, park, or district, use type=area (it traces and encloses the real footprint — a building gets a glowing volume, a district gets a draped outline). Use type=highlight only for a transient pulse on a precise spot that has no meaningful footprint, and type=pin to drop a labeled marker. Examples: "what is the Palace of Fine Arts?" → an AREA on it; "the old military base next to it" → an AREA on the Presidio; "ILM is right here" → a pin; "it sits next to the Marina" → an arrow from one to the other. Prefer place NAMES so the app resolves real positions and outlines; never invent coordinates or pixel locations.',
-            'On every annotation, also set entityKind to what the thing IS when you know it: building (one structure), compound (campus/grounds/mall/park), district (neighborhood/area of a city), street (a named road), or point_feature (a monument, statue, memorial, plaque, fountain, or other small point landmark). entityKind is a FACT about the target, independent of the mark type you chose — monuments and statues are point_feature even when you use type=area; the app then anchors them as precise points instead of guessing at a footprint.',
-            'Use a single annotate_map call with several annotations when you are describing multiple related places at once. Set flyTo true only when the user is not already looking at the place; if every mark in a call lands off-screen the app auto-frames them, so when unsure leave flyTo false. Do NOT say out loud that you are drawing, highlighting, or annotating — just speak naturally about the places while the marks appear. ANNOTATIONS ACCUMULATE AND PERSIST — keep adding marks as you explore; you can fly around, change topic, and jump between far-apart places and the marks STAY, so the user can build up the map and show people things. Do NOT clear on your own initiative: never pass clearPrevious, and call clear_annotations ONLY when the user EXPLICITLY asks to clear or reset the map.',
-            'If an annotate_map result has partial:true or any failedLabels, do not pretend those places appeared — briefly work into your narration that you could not pinpoint them (e.g. "I couldn\'t place X"). If a route comes back as a direct line (no street route was found), describe it as a straight-line distance, not a walking/driving time. If an annotate_map result has capped:true, the map is full — ASK the user whether to clear before drawing more; do not clear unprompted. outlinePending:true is NOT a failure, but it is also NOT an outline: the anchor mark is placed and the boundary is still being traced in the background. Narrate it in progress — e.g. "tracing the boundary now" — and NEVER state the outline is already drawn or visible; it may yet come back as just a point. A later system item of type map_annotation_outline reports the final outcome per mark (status resolved or failed, with its label): use it to quietly confirm, or to correct yourself if you implied a boundary that stayed a point — an honest miss beats a misleading guess.',
-            'PREFER NAMES. Only when you cannot name or geocode a place but you can clearly SEE the exact spot in the most recent viewport screenshot, fall back to screenX/screenY (normalized 0..1 from that image) to point at it; the app converts the pixel to a real world point. Never use screenX/screenY for something you could name.',
-            'PATHS vs DISTANCES: for "walking/driving route from A to B" (or through several stops), use type=route with the ordered points and the matching mode (walking/driving/cycling) — the app draws the real street-following path on the map and reports distance and travel time, which you can read aloud. For "how far is X from Y", "is it nearby", or "X is next to Y", use type=arrow between the two — it draws a floating connector and shows the straight-line distance. Do NOT use route for a simple distance/proximity question.',
-          ].join('\n'),
+          instructions: buildGevInstructions({ modality: 'voice' }),
           tools: GEV_REALTIME_TOOLS,
           tool_choice: 'auto',
         },
@@ -5224,18 +5224,6 @@ function openAiRealtimeProxy() {
   };
 }
 
-function extractOpenAiResponseText(data) {
-  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
-    return data.output_text.trim();
-  }
-  if (!Array.isArray(data?.output)) return '';
-  return data.output
-    .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
-    .map((part) => part?.text || part?.output_text || '')
-    .join(' ')
-    .trim();
-}
-
 function toFiveWordHudSummary(value) {
   return String(value || '')
     .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
@@ -5271,6 +5259,273 @@ function readRequestBody(req, maxBytes = 1024 * 1024) {
  * Cesium feature metadata. Nearby Search supplies the names around the actual
  * screen-space target without exposing the Google API key in the request.
  */
+/**
+ * Vite plugin: text agent relay for OpenAI, OpenRouter, and Ollama.
+ *
+ * The browser owns the transcript and executes the tools, because the tools
+ * drive its Cesium viewer. This server owns the credentials, the operating
+ * manual, and the tool schemas, so the client never sees a key and cannot
+ * substitute its own instructions.
+ *
+ * The malformed-tool-call correction loop also lives here: Ollama's compatible
+ * endpoint does not accept `tool_choice`, so a bad call cannot be prevented,
+ * only caught and handed back. Running that loop server-side keeps a retry off
+ * the browser round trip and out of the visible transcript.
+ *
+ * Endpoints:
+ *   GET  /api/agent/config  — providers, defaults, and prefix size for the UI
+ *   GET  /api/agent/models  — capability-gated model list for one provider
+ *   POST /api/agent/command — one model turn, tool calls validated before return
+ */
+function textAgentProxy() {
+  /** Chat-shaped tool schemas, derived once from the Realtime definitions. */
+  let _chatTools;
+  function chatTools() {
+    if (!_chatTools) _chatTools = toChatCompletionTools(GEV_REALTIME_TOOLS);
+    return _chatTools;
+  }
+
+  /** Tool schemas by name, for validating what the model sends back. */
+  let _toolIndex;
+  function toolIndex() {
+    if (!_toolIndex) _toolIndex = indexToolsByName(GEV_REALTIME_TOOLS);
+    return _toolIndex;
+  }
+
+  /** Correction attempts allowed before a malformed call is surfaced. */
+  const MAX_TOOL_CORRECTIONS = 2;
+
+  function sendJson(res, statusCode, payload) {
+    res.statusCode = statusCode;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify(payload));
+  }
+
+  function requireMethod(req, res, method) {
+    if (req.method === method) return true;
+    sendJson(res, 405, { error: 'Method not allowed' });
+    return false;
+  }
+
+  /**
+   * Resolve the provider named by a request, writing the error response itself.
+   *
+   * @returns {{provider: object, baseUrl: string, apiKey: string|null}|null}
+   */
+  function resolveRequestProvider(requestedId, res) {
+    const provider = requestedId ? resolveProvider(requestedId) : resolveConfiguredProvider(process.env);
+    if (!provider) {
+      sendJson(res, 400, { error: `Unknown provider "${String(requestedId).slice(0, 40)}"` });
+      return null;
+    }
+    if (!isProviderConfigured(provider, process.env)) {
+      sendJson(res, 503, {
+        error: `${provider.label} is not configured. Set ${provider.apiKeyEnv} to use it.`,
+        provider: provider.id,
+      });
+      return null;
+    }
+    return {
+      provider,
+      baseUrl: providerBaseUrl(provider, process.env),
+      apiKey: providerApiKey(provider, process.env),
+    };
+  }
+
+  /** Hosted providers spend money, so they share the OpenAI opt-in throttle. */
+  function enforceProviderRateLimit(provider, req, res) {
+    if (provider.kind !== 'hosted') return true;
+    return enforceOptInRateLimit(openAiRateLimiter(), req, res);
+  }
+
+  function install(middlewares) {
+    middlewares.use('/api/agent/config', async (req, res) => {
+      if (!requireMethod(req, res, 'GET')) return;
+      const configured = resolveConfiguredProvider(process.env);
+      sendJson(res, 200, {
+        providers: describeProviders(process.env),
+        defaultProvider: configured.id,
+        defaultModel: resolveConfiguredModel(configured, process.env),
+        toolCount: GEV_REALTIME_TOOLS.length,
+        promptPrefixTokens: AGENT_PROMPT_PREFIX_TOKENS,
+        minContextTokens: MIN_TOOL_CONTEXT_TOKENS,
+      });
+    });
+
+    middlewares.use('/api/agent/models', async (req, res) => {
+      if (!requireMethod(req, res, 'GET')) return;
+
+      let requestedId = null;
+      try {
+        requestedId = new URL(req.url || '', 'http://localhost').searchParams.get('provider');
+      } catch {
+        requestedId = null;
+      }
+
+      const resolved = resolveRequestProvider(requestedId, res);
+      if (!resolved) return;
+      if (!enforceProviderRateLimit(resolved.provider, req, res)) return;
+
+      const listing = await fetchModels({ ...resolved, fetchImpl: fetch });
+      if (!listing.ok) {
+        sendJson(res, 502, { error: listing.error, provider: resolved.provider.id, models: [] });
+        return;
+      }
+
+      const { usable, rejected } = gateModels(listing.models);
+      sendJson(res, 200, {
+        provider: resolved.provider.id,
+        models: sortModelsForPicker(usable),
+        rejected: rejected.map(({ model, reason }) => ({ id: model.id, reason })),
+        defaultModel: resolveConfiguredModel(resolved.provider, process.env),
+      });
+    });
+
+    middlewares.use('/api/agent/command', async (req, res) => {
+      if (!requireMethod(req, res, 'POST')) return;
+
+      let payload;
+      try {
+        payload = JSON.parse(await readRequestBody(req, AGENT_REQUEST_MAX_BYTES) || '{}');
+      } catch (error) {
+        sendJson(res, 400, { error: error?.message || 'Malformed request body' });
+        return;
+      }
+
+      const resolved = resolveRequestProvider(payload.provider, res);
+      if (!resolved) return;
+      if (!enforceProviderRateLimit(resolved.provider, req, res)) return;
+
+      const model = typeof payload.model === 'string' && payload.model.trim()
+        ? payload.model.trim()
+        : resolveConfiguredModel(resolved.provider, process.env);
+      if (!model) {
+        sendJson(res, 400, {
+          error: `No model selected for ${resolved.provider.label}. Pick one, or set GEV_AGENT_MODEL.`,
+        });
+        return;
+      }
+
+      const messages = buildRequestMessages({
+        instructions: buildGevInstructions({ modality: 'text' }),
+        messages: payload.messages,
+      });
+
+      // Correction loop: a rejected tool call is answered with its own error so
+      // the model can restate it, without that exchange reaching the browser.
+      const corrections = [];
+      for (let attempt = 0; attempt <= MAX_TOOL_CORRECTIONS; attempt += 1) {
+        const completion = await requestChatCompletion({
+          ...resolved,
+          model,
+          messages: [...messages, ...corrections],
+          tools: chatTools(),
+          fetchImpl: fetch,
+        });
+
+        if (!completion.ok) {
+          sendJson(res, completion.status && completion.status < 500 ? completion.status : 502, {
+            error: completion.error,
+            provider: resolved.provider.id,
+          });
+          return;
+        }
+
+        // A truncated tool prefix returns HTTP 200 with a plausible answer, so
+        // the only evidence is the prompt token count. Checked on the FIRST
+        // turn only: correction turns legitimately carry a different shape.
+        if (!corrections.length) {
+          const diagnosis = diagnoseTurn({
+            usage: completion.usage,
+            message: completion.message,
+            provider: resolved.provider,
+            model: completion.model,
+          });
+          if (!diagnosis.ok) {
+            sendJson(res, 502, {
+              error: diagnosis.error,
+              remedy: diagnosis.remedy,
+              promptTokens: diagnosis.promptTokens,
+              provider: resolved.provider.id,
+            });
+            return;
+          }
+        }
+
+        const rawCalls = Array.isArray(completion.message?.tool_calls) ? completion.message.tool_calls : [];
+        if (!rawCalls.length) {
+          sendJson(res, 200, {
+            provider: resolved.provider.id,
+            model: completion.model,
+            message: { role: 'assistant', content: completion.message.content || '' },
+            toolCalls: [],
+            usage: completion.usage,
+            corrections: corrections.length / 2,
+          });
+          return;
+        }
+
+        const prepared = rawCalls.map((call) => ({
+          id: call.id,
+          raw: call,
+          result: prepareToolCall(call.function, toolIndex()),
+        }));
+        const invalid = prepared.filter((entry) => !entry.result.ok);
+
+        if (!invalid.length) {
+          sendJson(res, 200, {
+            provider: resolved.provider.id,
+            model: completion.model,
+            message: completion.message,
+            toolCalls: prepared.map((entry) => ({
+              id: entry.id,
+              name: entry.result.name,
+              args: entry.result.args,
+            })),
+            usage: completion.usage,
+            corrections: corrections.length / 2,
+          });
+          return;
+        }
+
+        if (attempt === MAX_TOOL_CORRECTIONS) {
+          sendJson(res, 200, {
+            provider: resolved.provider.id,
+            model: completion.model,
+            message: {
+              role: 'assistant',
+              content: `I could not form a valid command for that. ${invalid[0].result.error}`,
+            },
+            toolCalls: [],
+            usage: completion.usage,
+            corrections: attempt,
+            toolCallFailed: true,
+          });
+          return;
+        }
+
+        corrections.push(completion.message);
+        for (const entry of prepared) {
+          corrections.push(toolResultMessage(
+            entry.id,
+            entry.result.ok
+              ? { ok: false, error: 'Not run: another tool call in the same turn was invalid. Reissue both.' }
+              : { ok: false, error: entry.result.error },
+          ));
+        }
+      }
+    });
+  }
+
+  return {
+    name: 'text-agent-proxy',
+    configureServer: (server) => install(server.middlewares),
+    configurePreviewServer: (server) => install(server.middlewares),
+  };
+}
+
+
 function googlePlacesContextProxy() {
   function install(middlewares) {
     middlewares.use('/api/google/nearby-places', async (req, res) => {
@@ -7360,6 +7615,7 @@ export default defineConfig(({ mode }) => {
       trackBackfillProxies(),
       openAiRealtimeProxy(),
       googlePlacesContextProxy(),
+      textAgentProxy(),
     ],
     server: {
       host: env.HOST || 'localhost',
