@@ -207,11 +207,22 @@ export function mountAgentPanel({
     modelSelect.innerHTML = '';
     models = [];
     refreshCost();
-    if (!providerId) return;
+
+    // The select is empty from here until the listing lands. Submitting in that
+    // window would send no model at all, so the input stays disabled until
+    // there is something real to send.
+    setBusy(true);
+    providerSelect.disabled = false;
+
+    if (!providerId) {
+      setBusy(false);
+      return;
+    }
 
     const provider = providers.find((entry) => entry.id === providerId);
     if (provider && !provider.configured) {
       setStatus(AGENT_STATUS.UNAVAILABLE, `set ${provider.apiKeyEnv}`);
+      providerSelect.disabled = false;
       return;
     }
 
@@ -236,9 +247,13 @@ export function mountAgentPanel({
       if (initial) modelSelect.value = initial.id;
       refreshCost();
       setStatus(models.length ? AGENT_STATUS.READY : AGENT_STATUS.UNAVAILABLE, models.length ? '' : 'no usable models');
+      // Only a provider with a usable model may accept input.
+      setBusy(models.length === 0);
+      providerSelect.disabled = false;
     } catch (error) {
       setStatus(AGENT_STATUS.UNAVAILABLE);
       append(ENTRY_KIND.ERROR, error?.message || 'Could not list models');
+      providerSelect.disabled = false;
     }
   }
 
@@ -293,6 +308,10 @@ export function mountAgentPanel({
     submitEvent?.preventDefault?.();
     const text = input.value.trim();
     if (!text || session.busy) return;
+    if (!modelSelect.value) {
+      append(ENTRY_KIND.ERROR, 'Select a model before sending a command.');
+      return;
+    }
 
     input.value = '';
     setBusy(true);
