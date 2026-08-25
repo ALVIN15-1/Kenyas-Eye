@@ -1582,7 +1582,10 @@ Historical planning documents may not match runtime behavior.
   left undefined). Resolved in `src/mapCredentials.js`; the Google key wins when
   both are set. The ion route loses Google geocoding, so place-name search and
   reverse geocoding report unavailable while fixed-coordinate city presets still
-  work. Startup fails only when NEITHER credential is present. Route is asserted
+  work. ion does expose a Pelias geocoder (`IonGeocoderService`,
+  `api.cesium.com/v1/geocode`) whose forward search and autocomplete work but
+  whose reverse endpoint returns 405; it is not wired up because its response
+  shape differs from the Google one `searchAndFlyTo` expects. Startup fails only when NEITHER credential is present. Route is asserted
   at the network layer by `scripts/qa-tileset-route.mjs`.
 - Scene/HUD/style systems in `src/ui.js` and `src/hud.js`
 - Layer management in `src/data/manager.js`

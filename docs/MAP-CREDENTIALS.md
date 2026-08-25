@@ -111,8 +111,9 @@ Without any ion token the app falls back to keyless Re:Earth ellipsoidal terrain
 
 ## What the ion route gives up
 
-**Geocoding.** ion resells the imagery, not Google's Geocoding API. On the ion
-route:
+**Geocoding.** The app's geocoders call Google's Geocoding API directly
+(`locations.js`, `annotationResolver.js`, `gevActions.js`), and ion does not
+resell that. On the ion route:
 
 | Feature | Status |
 |---|---|
@@ -124,8 +125,34 @@ route:
 | Voice/agent "fly to \<place\>" for arbitrary places | ❌ needs geocoding |
 
 Both geocoders already guarded for a missing key, so nothing throws — the
-features report unavailable. Adding a Google key later takes over automatically
-with no other change.
+features report unavailable, and the console says so explicitly:
+
+```
+[Search] Geocoding failed: Error: No Google Maps API key available for geocoding
+    at searchAndFlyTo (locations.js:351)
+```
+
+Adding a Google key later takes over automatically with no other change.
+
+### ion does offer geocoding, but the app does not use it
+
+Cesium ion has its own Pelias-backed geocoder at `api.cesium.com/v1/geocode`,
+exposed in CesiumJS as `IonGeocoderService`. Tested against a real ion token:
+
+| Endpoint | Result |
+|---|---|
+| `/v1/geocode/search?text=Eiffel Tower` | ✅ 200 — `"Eiffel Tower, Paris, France"` |
+| `/v1/geocode/autocomplete?text=Eiff` | ✅ 200 |
+| `/v1/geocode/reverse` | ❌ 405, GET and POST — not exposed |
+
+So **forward place-name search is available from ion; reverse geocoding is not.**
+
+It is not wired up because it is not a drop-in: ion returns a Pelias feature with
+`properties.label` and a `bbox`, whereas `searchAndFlyTo` is written against
+Google's response shape and its viewport/landmark framing rules. Adapting it
+would restore "fly to \<place\>" on the ion route. Reverse geocoding — the place
+names under the camera, used by the HUD and the agent's scene context — would
+stay unavailable either way.
 
 The app logs which route it took at startup:
 

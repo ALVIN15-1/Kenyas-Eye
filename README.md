@@ -322,10 +322,15 @@ configured, and ion's free tier includes an allowance of those root tiles. So
 CESIUM_ION_TOKEN=your_ion_token_here
 ```
 
-What you give up is **geocoding**: ion does not resell Google's Geocoding API, so
-search-by-name and reverse geocoding are unavailable. The bundled city presets
-use fixed coordinates and still work, as does every live layer. Add a Google key
-later and it takes over automatically.
+What you give up is **geocoding**: the app calls Google's Geocoding API directly,
+so search-by-name and reverse geocoding report unavailable. The bundled city
+presets use fixed coordinates and still work, as does every live layer. Add a
+Google key later and it takes over automatically.
+
+> [!NOTE]
+> ion *does* have its own geocoder, and its forward place-name search works
+> (reverse does not). It is not wired up because the response shape differs from
+> Google's — see [docs/MAP-CREDENTIALS.md](docs/MAP-CREDENTIALS.md#ion-does-offer-geocoding-but-the-app-does-not-use-it).
 
 🗺️ **[Map credentials reference](docs/MAP-CREDENTIALS.md)** — both routes step by step, token scoping, costs, and the caching terms
 
