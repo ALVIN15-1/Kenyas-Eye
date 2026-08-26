@@ -9,6 +9,7 @@ import {
   createLocalGeoJsonLayer,
   createLocalInfrastructureOverlayEntry,
   createLocalInfrastructureOverlayPublisher,
+  isPlausibleGroundHeight,
   localDatasetError,
   localInfrastructureOverlayCopy,
   selectLocalInfrastructureOverlayCohort,
@@ -961,5 +962,67 @@ test('after the cap a camera-motion frame still samples, and re-opens the budget
     governorScene.renders,
     GROUND_SAMPLE_MAX_ARMED_RETRIES,
     'a grounded record asks for no further frames',
+  );
+});
+
+// ── A sample can be finite and still impossible ───────────────────────────────
+//
+// Over a partially-streamed photoreal tileset, scene.sampleHeight returns
+// values around -6,600 m. The old guard was symmetric (|sampled| > 9000), so
+// those were accepted as ground and every stem was rebuilt 6.6 km below the
+// ellipsoid, where the horizon occluder correctly hid it. getStats() still
+// reported every feature loaded with error: null, so nothing failed loudly —
+// the markers were simply not on screen at close range.
+
+test('a ground sample below any real surface is rejected, not accepted as ground', () => {
+  // The sample that caused this, and the rest of the impossible sub-surface band.
+  assert.equal(isPlausibleGroundHeight(-6600), false);
+  assert.equal(isPlausibleGroundHeight(-8999), false);
+
+  // Real surfaces, which must still be accepted. The band is asymmetric because
+  // the Earth is: about -430 m at the Dead Sea shore, up to 8,849 m.
+  assert.equal(isPlausibleGroundHeight(0), true);
+  assert.equal(isPlausibleGroundHeight(164), true);
+  assert.equal(isPlausibleGroundHeight(-400), true, 'Dead Sea shore');
+  assert.equal(isPlausibleGroundHeight(8849), true, 'Everest');
+
+  // Above any surface, and the non-numeric values sampleHeight really returns
+  // when no tile is hit.
+  assert.equal(isPlausibleGroundHeight(9001), false);
+  assert.equal(isPlausibleGroundHeight(undefined), false);
+  assert.equal(isPlausibleGroundHeight(NaN), false);
+});
+
+test('an impossible sample leaves the record ungrounded and still recoverable', async (t) => {
+  const env = await createRealLocalLayerHarness({ sampleHeightSupported: true });
+  _resetRenderGovernorForTest();
+  installRenderGovernor({ scene: { requestRender() {} } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const clock = installFakeClock(t);
+  t.after(() => {
+    env.layer.destroy(env.viewer);
+    env.cleanup();
+    _resetRenderGovernorForTest();
+  });
+
+  setCameraAltitude(env, 20_000);
+  env.setSampleHeight(() => -6600);
+  runArmedRetryChain(env, t, clock, 3);
+  assert.equal(
+    baseHeightM(env),
+    0,
+    'a sub-surface sample must leave the stem at ellipsoid height, not 6.6 km under it',
+  );
+
+  // Rejecting rather than accepting keeps the record unsampled, so the tiles
+  // arriving later still ground it.
+  env.setSampleHeight(() => 114);
+  setCameraAltitude(env, 19_000);
+  env.moveEnd.raise();
+  clock.advance(2_100);
+  env.preRender.raise();
+  assert.ok(
+    Math.abs(baseHeightM(env) - 114) < 1e-6,
+    `a rejected sample must not end the retry; base height ${baseHeightM(env)}`,
   );
 });

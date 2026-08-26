@@ -30,6 +30,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Fixed
 
+- Datacenter, dam, and other local-dataset markers no longer disappear at close
+  range over a still-streaming photorealistic tileset. A height sample from
+  under the surface is now rejected rather than trusted, so the marker waits at
+  ellipsoid height for a real one instead of being rebuilt kilometres
+  underground and hidden.
 - A missing optional FIRMS key no longer turns the complete Environmental
   mission into `LOAD FAILED`. The FIRMS row still reports `KEY REQUIRED`, while
   earthquakes continue to load. Real lifecycle and fetch failures retain

@@ -29,7 +29,21 @@ const LOCAL_OVERLAY_FADE_START_RATIO = LOCAL_OVERLAY_FADE_START_M / LOCAL_OVERLA
 // height once per feature and lift the stem onto it.
 const GROUND_SAMPLE_MAX_DISTANCE_M = 75000;
 const GROUND_SAMPLE_RETRY_MS = 2000;
-const GROUND_SAMPLE_MAX_ABS_HEIGHT_M = 9000;
+/**
+ * Plausible-surface band for a ground sample, in metres above the WGS84
+ * ellipsoid. Deliberately ASYMMETRIC, because the Earth is: real surfaces run
+ * from about -430 m (Dead Sea shore, ≈ -400 m ellipsoidal there) up to 8,849 m.
+ *
+ * A symmetric `Math.abs(sampled) > 9000` guard let `scene.sampleHeight` return
+ * ≈ -6,600 m over a partially-streamed Google photoreal tileset and be accepted
+ * as ground. Every stem was then rebuilt 6.6 km underground, where the horizon
+ * occluder correctly hid it — so the whole layer vanished at close range while
+ * still reporting a healthy feature count. Rejecting the sample instead leaves
+ * the record unsampled, so it retries and meanwhile draws from ellipsoid zero,
+ * which is the pre-existing keyless behaviour.
+ */
+const GROUND_SAMPLE_MIN_HEIGHT_M = -500;
+const GROUND_SAMPLE_MAX_HEIGHT_M = 9000;
 /**
  * Bounded give-up for the self-armed retry. Sampling can be SUPPORTED and still
  * never succeed (no sampleable surface under the feature), in which case each
@@ -758,6 +772,17 @@ function insertLocalCellContender(contenders, record) {
   if (contenders.length > LOCAL_OVERLAY_CELL_SURPLUS) contenders.length = LOCAL_OVERLAY_CELL_SURPLUS;
 }
 
+/**
+ * Whether a `scene.sampleHeight` result can be a real surface.
+ * @param {*} sampled Raw sample, which may be undefined when no tile was hit.
+ * @returns {boolean}
+ */
+export function isPlausibleGroundHeight(sampled) {
+  return Number.isFinite(sampled)
+    && sampled >= GROUND_SAMPLE_MIN_HEIGHT_M
+    && sampled <= GROUND_SAMPLE_MAX_HEIGHT_M;
+}
+
 function sampleLocalGroundHeight(viewer, record, now) {
   if (record.groundSampled || !viewer.scene.sampleHeightSupported) return false;
   if (now - record.lastGroundSampleMs < GROUND_SAMPLE_RETRY_MS) return false;
@@ -768,7 +793,7 @@ function sampleLocalGroundHeight(viewer, record, now) {
   } catch {
     return false; // tiles not ready; retry on a later bounded update
   }
-  if (!Number.isFinite(sampled) || Math.abs(sampled) > GROUND_SAMPLE_MAX_ABS_HEIGHT_M) return false;
+  if (!isPlausibleGroundHeight(sampled)) return false;
   record.groundSampled = true;
   record.groundHeight = sampled;
   Cesium.Cartesian3.fromRadians(

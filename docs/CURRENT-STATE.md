@@ -1024,7 +1024,15 @@ This is the current runtime/source-of-truth snapshot for the project.
 >   Stem position and
 >   polyline properties are constant between initialization, camera `moveEnd`,
 >   and successful near-surface ground samples rather than per-frame callbacks
->   or every 450 ms visibility pass. Unchanged or sub-0.5 m tips do not call
+>   or every 450 ms visibility pass. A ground sample counts as successful only
+>   inside an asymmetric plausible-surface band (`isPlausibleGroundHeight`,
+>   -500 m to 9,000 m above the ellipsoid). A partially-streamed photoreal
+>   tileset returns samples around -6,600 m, which the earlier symmetric
+>   `|sampled| > 9000` test accepted, rebuilding every stem far below the
+>   surface where the horizon occluder hid it while `getStats()` still reported
+>   a full feature count. An implausible sample leaves the record unsampled, so
+>   it keeps its bounded retry and draws from ellipsoid zero meanwhile.
+>   Unchanged or sub-0.5 m tips do not call
 >   `setValue`, and each record alternates between two preallocated two-position
 >   stem arrays so real tip changes notify Cesium without steady-state allocation.
 >   Shared placement records retain the raw anchor plus one signed integer
