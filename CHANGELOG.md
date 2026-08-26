@@ -30,6 +30,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Fixed
 
+- The location search box, voice location resolution, and annotation anchors
+  work again for anyone whose Google Maps key carries the HTTP-referrer
+  restriction this project's own security guidance asks for. Google rejects
+  those keys for Geocoding, Places, and Street View outright, so all three
+  failed. They now use a separate server-side key.
+- `dev-fresh.sh` also accepts a Cesium ion token filed in the Keychain under
+  `api-key` as well as `token`. A token under the other account name silently
+  dropped the app to OSM imagery while every startup line still printed clean.
 - A missing optional FIRMS key no longer turns the complete Environmental
   mission into `LOAD FAILED`. The FIRMS row still reports `KEY REQUIRED`, while
   earthquakes continue to load. Real lifecycle and fetch failures retain
@@ -46,6 +54,14 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Security
 
+- Google Geocoding now goes through the same-origin `/api/google/geocode`
+  proxy instead of being called from the browser with the bundled Map Tiles key.
+  Geocoding, Places, and Street View read a new server-only
+  `GOOGLE_SERVER_API_KEY`, so the bundled key can keep its HTTP-referrer
+  restriction. It falls back to `GOOGLE_GEOCODING_API_KEY` and then to
+  `GOOGLE_MAPS_API_KEY`, leaving single-key setups unchanged. The proxy
+  forwards only an allowlist of geocoding parameters, so a caller cannot
+  append its own `key`.
 - Production transitive dependencies resolve to patched DOMPurify and
   protobufjs releases without changing the Cesium version or application APIs.
 - Production dependency audit reports no known advisories; remaining audit

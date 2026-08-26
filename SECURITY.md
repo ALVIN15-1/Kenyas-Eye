@@ -20,6 +20,20 @@ The golden rule: **secret-bearing API keys stay on the server side.** The dev/pr
 | `OPENAI_API_KEY` | Server only | Browser fetches a short-lived **ephemeral** Realtime session token from `/api/realtime/token`; the real key never ships |
 | `AISSTREAM_API_KEY` | Server only | Server holds the AISStream websocket; browser polls the same-origin `/api/ais-live` cache |
 | OpenSky OAuth (`OPENSKY_CLIENT_ID/SECRET`) | Server only | Server mints + refreshes the token behind `/api/opensky` |
+| `GOOGLE_SERVER_API_KEY` | Server only | Server calls Geocoding, Places, and Street View with it behind `/api/google/*`; the browser sees only same-origin paths |
+
+### One Google project, two keys
+
+Google's web-service APIs and its browser APIs cannot share a credential, so the app reads two:
+
+| Variable | Audience | Restrict it with | Serves |
+|----------|----------|------------------|--------|
+| `GOOGLE_MAPS_API_KEY` | Browser (bundled, readable in devtools) | HTTP referrer + API restriction to Map Tiles | Photorealistic 3D Tiles |
+| `GOOGLE_SERVER_API_KEY` | Server only (never bundled) | No application restriction, or an IP one + API restriction to Geocoding/Places/Street View | `/api/google/geocode`, `/api/google/nearby-places`, `/api/google/text-search`, CCTV Street View fallback |
+
+A referrer-restricted key cannot serve the web-service APIs at all: Google answers Geocoding with "API keys with referer restrictions cannot be used with this API" and Places with "Requests from referer &lt;empty&gt; are blocked", because a server request carries no referrer. Enabling the API does not change that; the restriction is on the key. Making one key serve both would mean dropping the referrer restriction from a key that ships in the bundle, so anyone reading devtools could spend it.
+
+`GOOGLE_SERVER_API_KEY` falls back to `GOOGLE_GEOCODING_API_KEY`, then to `GOOGLE_MAPS_API_KEY`. That last fallback keeps single-key setups working, and it is safe **only** while that key carries no referrer restriction, which is the configuration that exposes it. For any deployment beyond localhost, set the two keys separately.
 
 ### Two deliberately client-side keys — restrict them
 

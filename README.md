@@ -279,6 +279,8 @@ Five keys cover the fully keyed experience. Three currently offer no-cost develo
 | 🟡 | **NASA FIRMS** | 🔥 Live active fires | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/) — free |
 | 🟡 | **TomTom** | 🚦 Real traffic instead of an approximate simulation | [developer.tomtom.com](https://developer.tomtom.com) — check the current developer allowance for your account |
 
+**Two Google keys, not one.** `GOOGLE_MAPS_API_KEY` is bundled into the browser for Map Tiles, so it should carry an HTTP-referrer restriction. Google refuses referrer-restricted keys for Geocoding, Places, and Street View, which the server calls for the location search box, annotation anchors, and the CCTV Street View fallback. So put those on a second, server-only key, `GOOGLE_SERVER_API_KEY`, with no application restriction and an API restriction covering only those three. One unrestricted key still works on localhost; the two-key split is what makes restricting the bundled one possible. Details in [SECURITY.md](SECURITY.md).
+
 ![Diving from city-scale live congestion straight into an intersection's public camera](docs/media/05-traffic-to-cctv.gif)
 
 *What the TomTom key buys you: rush-hour density painted on the city — then dive from the jam straight into the camera watching it.*
