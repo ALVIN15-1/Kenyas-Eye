@@ -17,6 +17,8 @@ How to read this:
 | Source | Used for | License / terms | Attribution |
 |--------|----------|-----------------|-------------|
 | **Google Map Tiles API** (Photorealistic 3D Tiles) + Places/Geocoding | The 3D globe, voice scene context, and on-demand nearby installation search | Google Maps Platform ToS (proprietary, your own key + billing) | "Google" / "Google Maps" logo — **shown in-app**, required |
+| **Cesium ion — Google Photorealistic 3D Tiles** (asset `2275207`) | The same 3D globe, loaded through Cesium's resale of the tileset when Google refuses the direct call (EEA billing accounts) | Google Maps Platform ToS still apply, contracted through Cesium; your own ion token, and Cesium's plan terms govern which uses are permitted | "Google" / "Google Maps" logo, plus the Cesium ion credit the tileset registers itself |
+| **Cesium ion — Cesium OSM Buildings** (asset `96188`) | Extruded building footprints on the globe map stacks | ODbL 1.0 (OpenStreetMap-derived), served under your own ion token | "© OpenStreetMap contributors", registered by the tileset's own credit |
 | **OpenSky Network** | Primary worldwide live-flight snapshot | Non-commercial research/education license | Schäfer et al., *"Bringing Up OpenSky"*, IPSN 2014 + opensky-network.org |
 | **adsb.lol point API** | Bounded live-flight fallback when OpenSky has no usable snapshot | ODbL 1.0 | adsb.lol contributors; `api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{radius}` |
 | **adsb.lol** | Military flights + aircraft traces | ODbL 1.0 | "adsb.lol" (ODbL) |

@@ -287,11 +287,13 @@ Five keys cover the fully keyed experience. Three currently offer no-cost develo
 
 | | Key | Why | Get it |
 |---|-----|-----|--------|
-| 🟡 | **Cesium ion** | 🗺️ Bing imagery map stacks (public `assets:read` token) | [cesium.com/ion](https://cesium.com/ion) — [check the plan that fits your use](https://cesium.com/platform/cesium-ion/pricing/) |
+| 🟡 | **Cesium ion** | 🗺️ Bing imagery map stacks + OSM buildings on the globe (public `assets:read` token). **In the EEA, this is what gets you the 3D planet at all** — see below | [cesium.com/ion](https://cesium.com/ion) — [check the plan that fits your use](https://cesium.com/platform/cesium-ion/pricing/) |
 | 🟡 | **OpenSky** | ✈️ More flight-polling credits (🟢 anonymous works without) | [opensky-network.org](https://opensky-network.org) |
 | 🟡 | **Launch Library 2** | 🚀 Higher space-missions request allowance (🟢 works without) | [thespacedevs.com](https://thespacedevs.com) |
 
 All of them are worth getting. None of them are required to start.
+
+**If your Google billing account is in the EEA, add the Cesium ion token.** Google refuses Photorealistic 3D Tiles to Cloud projects on an EEA billing address created on or after 8 July 2025 ([Google's EEA Map Tiles notice](https://developers.google.com/maps/comms/eea/map-tiles)). Your key is fine; the contract is not, so no key setting fixes it and the app drops to the plain globe. With an ion token it loads the identical tileset through Cesium, which resells it under a non-EEA Google contract. Cesium's free tier is non-commercial, so check the plan that matches your use.
 
 ```bash
 # Put keys in .env (see .env.example), or pass them as env vars:

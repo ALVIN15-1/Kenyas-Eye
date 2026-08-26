@@ -7,6 +7,10 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- Added Cesium OSM Buildings to the globe map stacks. With a Cesium ion token,
+  Bing Aerial, Bing Labels, and OSM now carry extruded OpenStreetMap buildings
+  instead of a flat basemap. Google 3D is unaffected: its photogrammetry already
+  contains buildings, so the extrusions stay hidden there.
 - Added honest aircraft identity narration: callsign, operator, registration,
   type, and route come only from selected-contact context, and missing operator,
   route, or type enrichment is named explicitly.
@@ -30,6 +34,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Fixed
 
+- Google Photorealistic 3D Tiles now load for developers on an EEA billing
+  account. Google refuses the direct tileset call to those projects (its
+  EEA-specific Map Tiles terms, effective 8 July 2025), which dropped every
+  affected user to the plain Cesium globe no matter how the key was configured.
+  The same imagery now loads through Cesium ion, which resells it under a
+  non-EEA contract. Requires a Cesium ion token; the globe fallback is unchanged
+  without one.
 - A missing optional FIRMS key no longer turns the complete Environmental
   mission into `LOAD FAILED`. The FIRMS row still reports `KEY REQUIRED`, while
   earthquakes continue to load. Real lifecycle and fetch failures retain
