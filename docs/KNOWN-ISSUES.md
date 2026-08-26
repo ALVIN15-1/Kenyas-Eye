@@ -1,6 +1,6 @@
 # KNOWN ISSUES
 
-Updated: July 8, 2026
+Updated: August 27, 2026
 
 This file tracks active runtime issues only.
 
@@ -63,6 +63,34 @@ Status: Open (accepted 2026-07-08, documented)
   the height-datum section in `docs/CURRENT-STATE.md`.
 
 ---
+
+## Phones and small tablets
+
+The app is built for a desktop GPU. On a phone it now runs a lighter
+rendering profile (`src/mobileProfile.js`), which is why the picture is a bit
+softer there: CSS-pixel resolution instead of 2x or 3x, a smaller photoreal
+tile cache with coarser detail, and none of the visual
+styles or the sharpen/bloom/scope passes. That is the trade for a globe that
+keeps running instead of stalling or, on iOS, reloading the tab when WebGL
+memory goes past roughly 1 to 1.5 GB.
+
+- Want desktop quality on a tablet? Add `?gevMobile=0` to the URL.
+  `?gevMobile=1` forces the phone profile on a desktop, useful to test it.
+- Something looks wrong on your phone? Open the site with `?gevFlags=diag`
+  and attach a screenshot of the green box in the top-left corner to your
+  issue. It lists browser, GPU, device pixel ratio, canvas and drawing-buffer
+  sizes and GL limits, which is what is needed to tell an app problem from a
+  browser or driver problem.
+- Known case, not fixable in the app: on a Galaxy S24 (Samsung Xclipse 940
+  GPU) Edge 151 for Android draws vertical streaks over the whole map. Chrome
+  on the same phone is fine, and the `diag` box shows the same GPU and Vulkan
+  backend in both, so it is Edge's default graphics backend, not Cesium. The
+  fix is on the phone: open `edge://flags` in Edge, search for "ANGLE",
+  set "Choose ANGLE graphics backend" to **Vulkan** (not OpenGL ES, that one
+  stays broken), tap Restart, and reload the site. Setting it back to Default
+  brings the streaks back.
+- The HUD layout itself is still a desktop layout; panels overlap on a
+  narrow screen. Not addressed by the profile.
 
 ## Closed / Intentional (for clarity)
 

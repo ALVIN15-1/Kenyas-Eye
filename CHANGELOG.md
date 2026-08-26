@@ -7,6 +7,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- Added a lighter rendering profile for phones and small tablets
+  (`src/mobileProfile.js`): no preserved drawing buffer, CSS-pixel
+  resolution, a 256 MB photoreal tile cache with coarser detail,
+  and the post-process passes (scope mask, sharpen, bloom, visual styles)
+  disabled. Desktop rendering is unchanged. `?gevMobile=1|0` forces the
+  profile; `?gevFlags=diag` shows an on-screen GPU/canvas readout for bug
+  reports. See `docs/KNOWN-ISSUES.md`, "Phones and small tablets".
 - Added honest aircraft identity narration: callsign, operator, registration,
   type, and route come only from selected-contact context, and missing operator,
   route, or type enrichment is named explicitly.

@@ -1,6 +1,21 @@
 # God's Eye View Current State
 
-Updated: August 24, 2026
+Updated: August 27, 2026
+
+> **2026-08-27 — mobile rendering profile** (`src/mobileProfile.js`, applied
+> in `src/main.js`). `isMobileDevice()` is true for touch-first devices whose
+> shorter screen side is under 900 px (`?gevMobile=1|0` overrides). On those
+> the viewer is created with `preserveDrawingBuffer: false` (MSAA stays 4x),
+> `useBrowserRecommendedResolution` is forced on, the Google tileset gets `cacheBytes` 256 MB / `maximumCacheOverflowBytes` 64 MB /
+> `maximumScreenSpaceError` 24, the scope mask is switched off right after
+> install, and every post-process stage plus FXAA and bloom is disabled after
+> the `StyleManager` registers them (`[mobile] post-process disabled (n
+> stages)` in the console). `window.__gevMobile === true` marks the active
+> profile. Desktop keeps the upstream values exactly.
+>
+> `?gevFlags=diag` installs `#gev-diag`, a fixed readout of browser, GPU,
+> DPR, canvas vs. drawing-buffer size, GL limits and active profile, meant
+> for phone bug reports. Without the flag nothing is added.
 
 > **2026-08-23 — first-run mission launcher** (`src/firstRunExperience.js`,
 > `#first-run-launcher`, styles at the tail of `style.css`). After startup
