@@ -3,6 +3,13 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased]
+
+### Fixed
+
+- Added targeted IPv4 fallback (`family: 4` via `node:https`) for NASA FIRMS proxy requests in `vite.config.js` when Node 24 standard `fetch()` fails due to IPv6 connection timeouts on unrouted hosts. (#68)
+- Enhanced FIRMS proxy error logging to surface `error.cause` alongside error messages instead of masking connection failures as generic `fetch failed`. (#68)
+
 ## [Unreleased] — 2026-08-24
 
 ### Added
