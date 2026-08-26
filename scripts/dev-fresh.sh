@@ -202,11 +202,21 @@ CESIUM_ION_TOKEN="${CESIUM_ION_TOKEN:-$(read_dotenv_value "CESIUM_ION_TOKEN")}"
 LL2_API_TOKEN="${LL2_API_TOKEN:-$(read_dotenv_value "LL2_API_TOKEN")}"
 TOMTOM_API_KEY="${TOMTOM_API_KEY:-$(read_dotenv_value "TOMTOM_API_KEY")}"
 FIRMS_MAP_KEY="${FIRMS_MAP_KEY:-$(read_dotenv_value "FIRMS_MAP_KEY")}"
+# Server-side Google key: Geocoding, Places, Street View. Separate from
+# GOOGLE_MAPS_API_KEY because that one is bundled into the browser and carries an
+# HTTP-referrer restriction, which Google rejects for server-originated calls.
+GOOGLE_SERVER_API_KEY="${GOOGLE_SERVER_API_KEY:-$(read_dotenv_value "GOOGLE_SERVER_API_KEY")}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-$(read_keychain_secret "openai-api" "api-key")}"
 AISSTREAM_API_KEY="${AISSTREAM_API_KEY:-$(read_keychain_secret "aisstream-api" "api-key")}"
 CESIUM_ION_TOKEN="${CESIUM_ION_TOKEN:-$(read_keychain_secret "cesium-ion" "token")}"
+# `api-key` as well as `token`: the account name is not obvious from the outside,
+# and a token filed under the wrong one silently drops the app to OSM imagery
+# while everything else still starts cleanly.
+CESIUM_ION_TOKEN="${CESIUM_ION_TOKEN:-$(read_keychain_secret "cesium-ion" "api-key")}"
 TOMTOM_API_KEY="${TOMTOM_API_KEY:-$(read_keychain_secret "tomtom-api" "api-key")}"
 FIRMS_MAP_KEY="${FIRMS_MAP_KEY:-$(read_keychain_secret "firms-map" "map-key")}"
+GOOGLE_SERVER_API_KEY="${GOOGLE_SERVER_API_KEY:-$(read_keychain_secret "google-server-api" "api-key")}"
+GOOGLE_SERVER_API_KEY="${GOOGLE_SERVER_API_KEY:-$(read_keychain_secret "google-geocoding-api" "api-key")}"
 
 if [[ ! -f "src/data/cctv.js" ]]; then
   echo "error: expected CCTV layer file missing: src/data/cctv.js"
@@ -312,6 +322,7 @@ case "${OPENSKY_AUTH_MODE}" in
 esac
 [[ -n "${OPENAI_API_KEY}" ]] && echo "OpenAI key (voice + HUD summary): configured" || echo "OpenAI key (voice + HUD summary): not set — GEV MIC disabled"
 [[ -n "${AISSTREAM_API_KEY}" ]] && echo "AISStream key (live vessels): configured" || echo "AISStream key (live vessels): not set — ships layer empty"
+[[ -n "${GOOGLE_SERVER_API_KEY}" ]] && echo "Google server key (geocoding + places + street view): configured" || echo "Google server key: not set — location search and places panels will fail"
 [[ -n "${CESIUM_ION_TOKEN}" ]] && echo "Cesium ion token (Bing map stacks): configured" || echo "Cesium ion token (Bing map stacks): not set — Google 3D/OSM only"
 [[ -n "${TOMTOM_API_KEY}" ]] && echo "TomTom key (live traffic flow): configured" || echo "TomTom key (live traffic flow): not set — simulated traffic"
 [[ -n "${FIRMS_MAP_KEY}" ]] && echo "NASA FIRMS key (live fires): configured" || echo "NASA FIRMS key (live fires): not set — fires layer requires a key"
@@ -352,6 +363,7 @@ put_env_if_set OPENSKY_CLIENT_ID "${OPENSKY_CLIENT_ID}"
 put_env_if_set OPENSKY_CLIENT_SECRET "${OPENSKY_CLIENT_SECRET}"
 put_env_if_set OPENSKY_USERNAME "${OPENSKY_USERNAME}"
 put_env_if_set OPENSKY_PASSWORD "${OPENSKY_PASSWORD}"
+put_env_if_set GOOGLE_SERVER_API_KEY "${GOOGLE_SERVER_API_KEY}"
 put_env_if_set OPENAI_API_KEY "${OPENAI_API_KEY}"
 put_env_if_set AISSTREAM_API_KEY "${AISSTREAM_API_KEY}"
 put_env_if_set CESIUM_ION_TOKEN "${CESIUM_ION_TOKEN}"

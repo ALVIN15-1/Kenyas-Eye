@@ -23,6 +23,23 @@ import {
   _resetRenderGovernorForTest,
 } from '../renderGovernor.js';
 
+/**
+ * Geocoding moved behind the same-origin proxy (see googleGeocodeProxy in
+ * vite.config.js) because Google rejects referrer-restricted keys for that API.
+ * These fixtures branch on "is this the geocode call?", so they match the proxy
+ * path now and keep the old direct URL for anything still calling it. Without
+ * this the branch stops firing, the resolver reads the fall-through as a
+ * transient miss, and every affected test burns its real 8s/25s backoff ladder.
+ * @param {*} url
+ * @returns {boolean}
+ */
+function isGeocodeCall(url) {
+  const value = String(url);
+  return value.startsWith('/api/google/geocode')
+    || value.startsWith('https://maps.googleapis.com/maps/api/geocode');
+}
+
+
 // A resolver that replays a scripted sequence of outcomes (undefined = transient,
 // null = definitive miss, object = footprint) and counts its invocations.
 function scriptedResolver(outcomes) {
@@ -399,7 +416,7 @@ test('outline upgrade updates the rendered element in place without remove/add',
   };
   let overpassCall = 0;
   globalThis.fetch = async (url) => {
-    if (String(url).startsWith('https://maps.googleapis.com/')) {
+    if (isGeocodeCall(url)) {
       return { json: async () => ({
         status: 'OK',
         results: [{

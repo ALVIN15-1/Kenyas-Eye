@@ -18,6 +18,23 @@ import {
   isGroundsLikeAsk,
 } from './annotationResolver.js';
 
+/**
+ * Geocoding moved behind the same-origin proxy (see googleGeocodeProxy in
+ * vite.config.js) because Google rejects referrer-restricted keys for that API.
+ * These fixtures branch on "is this the geocode call?", so they match the proxy
+ * path now and keep the old direct URL for anything still calling it. Without
+ * this the branch stops firing, the resolver reads the fall-through as a
+ * transient miss, and every affected test burns its real 8s/25s backoff ladder.
+ * @param {*} url
+ * @returns {boolean}
+ */
+function isGeocodeCall(url) {
+  const value = String(url);
+  return value.startsWith('/api/google/geocode')
+    || value.startsWith('https://maps.googleapis.com/maps/api/geocode');
+}
+
+
 // Build a square way of ~`areaM2` centred `dLatM`/`dLonM` metres from an anchor,
 // in Overpass `out geom` element shape ({ tags, geometry: [{lat,lon}...] }).
 function squareWay(anchor, dLatM, dLonM, areaM2, tags) {
@@ -198,7 +215,7 @@ test('ask-side admin bypass: "the Texas Capitol" recovers near-view despite a fa
   const calls = [];
   installGoogleMocks(t, async (url) => {
     calls.push(String(url));
-    if (String(url).startsWith('https://maps.googleapis.com/')) {
+    if (isGeocodeCall(url)) {
       return { json: async () => geocodePayload({
         lat: 31.0000,
         lon: -99.0000,
@@ -233,7 +250,10 @@ test('ask-side admin bypass: explicit "state of Texas" skips recovery and proxim
   const calls = [];
   installGoogleMocks(t, async (url) => {
     calls.push(String(url));
-    assert.match(String(url), /^https:\/\/maps\.googleapis\.com\/maps\/api\/geocode/);
+    // Geocoding now goes through the same-origin proxy rather than straight to
+    // Google: Google rejects referrer-restricted keys for this API, so the key
+    // has to stay server-side. See googleGeocodeProxy in vite.config.js.
+    assert.match(String(url), /^\/api\/google\/geocode/);
     return { json: async () => geocodePayload({
       lat: 31.0000,
       lon: -99.0000,
@@ -271,7 +291,7 @@ for (const fixture of [
     const calls = [];
     installGoogleMocks(t, async (url) => {
       calls.push(String(url));
-      if (String(url).startsWith('https://maps.googleapis.com/')) {
+      if (isGeocodeCall(url)) {
         return { json: async () => geocodePayload({
           lat: fixture.lat,
           lon: fixture.lon,
@@ -297,7 +317,7 @@ test('ask-side admin bypass: bare "Texas" remains on the guarded recovery path',
   const calls = [];
   installGoogleMocks(t, async (url) => {
     calls.push(String(url));
-    if (String(url).startsWith('https://maps.googleapis.com/')) {
+    if (isGeocodeCall(url)) {
       return { json: async () => geocodePayload({
         lat: 31.0000,
         lon: -99.0000,
@@ -326,7 +346,7 @@ test('ask-side admin bypass: admin level 2/3 result types never grant a township
   const calls = [];
   installGoogleMocks(t, async (url) => {
     calls.push(String(url));
-    if (String(url).startsWith('https://maps.googleapis.com/')) {
+    if (isGeocodeCall(url)) {
       const query = new URL(String(url)).searchParams.get('address');
       return { json: async () => geocodePayload({
         lat: 39.7817,

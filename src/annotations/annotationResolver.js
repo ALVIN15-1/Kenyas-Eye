@@ -610,7 +610,7 @@ async function geocodePlace(query, biasRect, signal) {
   const cached = cacheRead(geocodeCache, cacheKey);
   if (cached !== undefined) return cached;
 
-  let url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
+  let url = `/api/google/geocode?address=${encodeURIComponent(query)}`;
   if (biasRect) url += `&bounds=${biasRect}`;
 
   try {

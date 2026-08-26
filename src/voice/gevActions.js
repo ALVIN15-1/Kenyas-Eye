@@ -1268,7 +1268,7 @@ async function resolveRadioLocation(args = {}, coordinates = radioCoordinatePair
   options.signal?.addEventListener('abort', cancelFromTurn, { once: true });
   const timer = setTimeout(() => controller.abort(), 6000);
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
+    const url = `/api/google/geocode?address=${encodeURIComponent(query)}`;
     const response = await fetch(url, { signal: controller.signal });
     const body = await response.json();
     if (!radioActionIsCurrent(options)) throw radioAbortError();
@@ -2942,7 +2942,7 @@ async function reverseGeocode(latitude, longitude) {
 
   const request = (async () => {
     try {
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(`${latitude},${longitude}`)}&key=${apiKey}`;
+      const url = `/api/google/geocode?latlng=${encodeURIComponent(`${latitude},${longitude}`)}`;
       const response = await fetchWithTimeout(url, {}, 5000);
       const data = await response.json();
       if (data.status !== 'OK' || !data.results?.length) {

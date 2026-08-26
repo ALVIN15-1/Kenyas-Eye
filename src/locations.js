@@ -356,7 +356,7 @@ export async function searchAndFlyTo(viewer, query, options = {}) {
   // Viewport-biased geocode — the same bias annotationResolver's geocodePlace uses:
   // "Sixth Street" spoken over Austin must prefer the Sixth Street on screen, not a
   // same-named road in another city (or the wrong end of town — the W 6th vs E 6th bug).
-  let url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
+  let url = `/api/google/geocode?address=${encodeURIComponent(query)}`;
   const bias = viewportBias(viewer);
   if (bias) url += `&bounds=${bias}`;
   const response = await fetch(url);

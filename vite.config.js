@@ -4458,7 +4458,7 @@ function cctvProxy() {
 
   /** Fetch a Google Street View static image as a fallback frame. Requires GOOGLE_MAPS_API_KEY. */
   const streetViewFallback = async ({ lat, lon, heading, fov, pitch }) => {
-    const streetViewKey = process.env.GOOGLE_MAPS_API_KEY;
+    const streetViewKey = serverGoogleKey();
     if (!streetViewKey || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     try {
       const sv = new URL('https://maps.googleapis.com/maps/api/streetview');
@@ -5271,6 +5271,111 @@ function readRequestBody(req, maxBytes = 1024 * 1024) {
  * Cesium feature metadata. Nearby Search supplies the names around the actual
  * screen-space target without exposing the Google API key in the request.
  */
+/**
+ * The key for Google APIs called from the SERVER: Geocoding, Places, Street View.
+ *
+ * These cannot share the browser's key. GOOGLE_MAPS_API_KEY is injected into the
+ * bundle for Map Tiles and therefore needs an HTTP-referrer restriction, and a
+ * server request carries no referrer — Google rejects it with "Requests from
+ * referer <empty> are blocked" before it even reads the API restriction.
+ * Verified against Places and Geocoding, 2026-08-26.
+ *
+ * So the server key is a separate credential with NO application restriction
+ * (or an IP one) and an API restriction listing only what it serves. It is never
+ * bundled, so there is nothing to lock a referrer against.
+ *
+ * GOOGLE_GEOCODING_API_KEY is the older name, kept working because it was the
+ * first use. Falling back to GOOGLE_MAPS_API_KEY preserves single-key setups,
+ * which is upstream's default and fine when that key is unrestricted.
+ * @returns {string|undefined}
+ */
+function serverGoogleKey() {
+  return process.env.GOOGLE_SERVER_API_KEY
+    || process.env.GOOGLE_GEOCODING_API_KEY
+    || process.env.GOOGLE_MAPS_API_KEY;
+}
+
+/**
+ * Server-side proxy for the Geocoding web service.
+ *
+ * The client used to call maps.googleapis.com/maps/api/geocode/json directly
+ * with the browser-exposed key. That cannot work for anyone following this
+ * repo's own security advice: Google rejects the request outright with
+ * "API keys with referer restrictions cannot be used with this API", because
+ * Geocoding is a web service and expects a server-side key. The only way to
+ * make the direct call succeed is to strip the referrer restriction, which
+ * leaves a publicly-readable key anyone can spend.
+ *
+ * Brokering it here keeps the referrer restriction on the client-exposed use
+ * (Map Tiles) and puts geocoding on the same server-side key the Places proxies
+ * already use. Forward and reverse both route through this: whichever of
+ * `address` or `latlng` the caller passes is forwarded.
+ */
+function googleGeocodeProxy() {
+  function install(middlewares) {
+    middlewares.use('/api/google/geocode', async (req, res) => {
+      const fail = (code, error) => {
+        res.statusCode = code;
+        res.setHeader('Content-Type', 'application/json');
+        // Google's own error shape, so callers need no special case for ours.
+        res.end(JSON.stringify({ status: 'ERROR', error_message: error, results: [] }));
+      };
+
+      if (req.method !== 'GET') return fail(405, 'Method not allowed');
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.setHeader('Retry-After', '5');
+        return fail(429, 'Rate limit exceeded');
+      }
+
+      // Two keys, because one cannot satisfy both callers. The browser bundle
+      // needs GOOGLE_MAPS_API_KEY for Map Tiles, and that key should carry an
+      // HTTP-referrer restriction since it is readable in devtools. Geocoding
+      // refuses referrer-restricted keys outright. So GOOGLE_GEOCODING_API_KEY
+      // is a second, server-only key with NO application restriction (or an IP
+      // one) and an API restriction of Geocoding alone. It never reaches the
+      // browser — only this proxy reads it.
+      //
+      // Falling back to GOOGLE_MAPS_API_KEY keeps single-key setups working for
+      // anyone whose key is unrestricted, which is the upstream default.
+      const apiKey = serverGoogleKey();
+      if (!apiKey) return fail(503, 'No server key: set GOOGLE_SERVER_API_KEY');
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      if (!requestUrl.searchParams.get('address') && !requestUrl.searchParams.get('latlng')) {
+        return fail(400, 'address or latlng is required');
+      }
+
+      // Allowlist what we forward. Passing the caller's query string through
+      // wholesale would let a page append its own `key` and turn this into an
+      // open relay billed to someone else.
+      const upstream = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+      for (const name of ['address', 'latlng', 'bounds', 'region', 'language', 'result_type']) {
+        const value = requestUrl.searchParams.get(name);
+        if (value) upstream.searchParams.set(name, value);
+      }
+      upstream.searchParams.set('key', apiKey);
+
+      try {
+        const response = await fetch(upstream, { signal: AbortSignal.timeout(10_000) });
+        const body = await response.text();
+        res.statusCode = response.ok ? 200 : 502;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(body);
+      } catch (error) {
+        // Never surface the upstream URL — it carries the key.
+        fail(502, `Geocoding upstream failed: ${error?.name || 'error'}`);
+      }
+    });
+  }
+  return {
+    name: 'gev-google-geocode-proxy',
+    configureServer: (server) => install(server.middlewares),
+    configurePreviewServer: (server) => install(server.middlewares),
+  };
+}
+
 function googlePlacesContextProxy() {
   function install(middlewares) {
     middlewares.use('/api/google/nearby-places', async (req, res) => {
@@ -5293,7 +5398,7 @@ function googlePlacesContextProxy() {
         return;
       }
 
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      const apiKey = serverGoogleKey();
       if (!apiKey) {
         res.statusCode = 503;
         res.setHeader('Content-Type', 'application/json');
@@ -5407,7 +5512,7 @@ function googlePlacesContextProxy() {
         return;
       }
 
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      const apiKey = serverGoogleKey();
       if (!apiKey) {
         res.statusCode = 503;
         res.setHeader('Content-Type', 'application/json');
@@ -7359,6 +7464,7 @@ export default defineConfig(({ mode }) => {
       aisLiveProxy(),
       trackBackfillProxies(),
       openAiRealtimeProxy(),
+      googleGeocodeProxy(),
       googlePlacesContextProxy(),
     ],
     server: {
