@@ -143,6 +143,18 @@ Updated: August 24, 2026
 > no height sampling and no canvas work after the single clear on the disable
 > transition. The hard-crop (FEATHER 0) path honors the same terminus.
 
+> **Performance wave 3 (Issue #8 partial):**
+> `preserveDrawingBuffer` is now `false` (the WebGL default) — voice viewport
+> capture reads the canvas synchronously inside a `postRender` callback so buffer
+> preservation was never needed; disabling it re-enables the browser's zero-copy
+> buffer-swap fast path. All 22 `backdrop-filter: blur()` CSS declarations now
+> reference CSS custom properties (`--glass-blur`, `--glass-blur-light`,
+> `--glass-blur-heavy`) controlled by a `body.glass-effects` class; when absent,
+> zero compositor blur passes run. `--glass-bg` opacity was raised from 0.72 to
+> 0.88 so panels remain opaque without blur. Google Fonts stylesheets are now
+> loaded asynchronously via `rel="preload"` + `onload` swap with a `<noscript>`
+> fallback, unblocking first paint.
+
 This is the current runtime/source-of-truth snapshot for the project.
 
 > [!IMPORTANT]
