@@ -81,6 +81,18 @@ export const CITY_POIS = {
       { name: 'The Gherkin', lat: 51.5145, lon: -0.0803, alt: 350, pitch: -20, heading: 30, buildingHeight: 60 },
     ],
   },
+  tallinn: {
+    name: 'Tallinn',
+    groundElevation: 15,
+    viewBounds: { southwest: { lat: 59.36, lng: 24.60 }, northeast: { lat: 59.52, lng: 24.92 } },
+    pois: [
+      { name: 'Viru Square', lat: 59.4366, lon: 24.7527, alt: 450, pitch: -28, heading: 60, buildingHeight: 25 },
+      { name: 'Old Town / Raekoja plats', lat: 59.4372, lon: 24.7452, alt: 400, pitch: -30, heading: 180, buildingHeight: 20 },
+      { name: 'Teatri väljak', lat: 59.4344, lon: 24.7514, alt: 400, pitch: -25, heading: 220, buildingHeight: 25 },
+      { name: 'Port of Tallinn', lat: 59.4445, lon: 24.7675, alt: 700, pitch: -30, heading: 90, buildingHeight: 20 },
+      { name: 'Ülemiste', lat: 59.4210, lon: 24.7920, alt: 600, pitch: -28, heading: 45, buildingHeight: 30 },
+    ],
+  },
   paris: {
     name: 'Paris',
     groundElevation: 35,

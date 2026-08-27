@@ -128,6 +128,18 @@ export const DATA_CREDITS = [
       'Contains OS data © Crown copyright and database rights.',
   },
   {
+    key: 'tallinn-cctv',
+    html:
+      'CCTV cameras &amp; frames (Tallinn): City of Tallinn — ' +
+      '<a href="https://ristmikud.tallinn.ee/" target="_blank" rel="noopener">ristmikud.tallinn.ee</a>',
+  },
+  {
+    key: 'tarktee-cctv',
+    html:
+      'CCTV cameras &amp; frames (Estonia road weather): Transpordiamet / Tarktee — ' +
+      '<a href="https://tarktee.transpordiamet.ee/" target="_blank" rel="noopener">tarktee.transpordiamet.ee</a>',
+  },
+  {
     key: 'gbfs',
     html: 'Bikeshare availability: GBFS operator feeds (e.g. Austin BCycle)',
   },
