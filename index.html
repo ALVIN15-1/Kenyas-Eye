@@ -894,6 +894,9 @@
     </div>
   </div>
 
+  <!-- Before main.js on purpose: module scripts run in document order and the
+       boot listeners have to exist before the app graph starts evaluating. -->
+  <script type="module" src="/src/bootDiagnostics.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -1,6 +1,15 @@
 # God's Eye View Current State
 
-Updated: August 24, 2026
+Updated: August 27, 2026
+
+> **2026-08-27 — boot diagnostics** (`src/bootDiagnostics.js`, a module with
+> no imports loaded from `index.html` before `main.js`). The `error` event on
+> `window` (capture phase, so a module that fails to load is caught as well as
+> one that throws) and `unhandledrejection` replace the loading-screen status
+> with `Boot error: …` in red; if `main.js` has not replaced the initial
+> status after 20 s the line grows a seconds counter and a slow-network hint.
+> Both stop as soon as the loading screen is dismissed or `main.js` takes
+> over. No behavior change on a successful boot.
 
 > **2026-08-23 — first-run mission launcher** (`src/firstRunExperience.js`,
 > `#first-run-launcher`, styles at the tail of `style.css`). After startup

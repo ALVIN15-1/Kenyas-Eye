@@ -7,6 +7,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- Added boot diagnostics to the loading screen: a module-load failure now
+  shows `Boot error: <message> @ <file>:<line>` instead of an eternal
+  "Initializing photorealistic world…", and a boot still waiting on modules
+  after 20 s says so with a running counter. Lives in `src/bootDiagnostics.js`,
+  loaded from `index.html` before `main.js` so it also covers a module that
+  fails to load, not only one that throws.
 - Added honest aircraft identity narration: callsign, operator, registration,
   type, and route come only from selected-contact context, and missing operator,
   route, or type enrichment is named explicitly.
