@@ -1,0 +1,90 @@
+name: Deploy to GitHub Pages
+
+# Publishes the static build to GitHub Pages.
+#
+# What you get: the 3D globe, every visual style, the camera/scene director,
+# share links, annotations, the bundled datasets, and the feeds that are
+# CORS-open straight from the browser (USGS earthquakes, GBFS bikeshare).
+#
+# What you do NOT get: the live intelligence feeds. Those are brokered by proxy
+# middleware in vite.config.js that only runs under `vite dev`, because it holds
+# the server-side keys. The app detects this and says so in-page rather than
+# failing quietly. See docs/GITHUB-PAGES.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: read the tree, mint the Pages deployment, nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deployments race; let an in-flight one finish rather than
+# cancelling it half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the engines range in package.json.
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Build
+        # BROWSER-EXPOSED BY DESIGN. Both keys are used client-side, so they end
+        # up in the bundle and are visible in devtools — that is true of every
+        # deployment, not just this one. Restrict them at the provider instead
+        # (HTTP referrer + API restriction for Google; a public assets:read
+        # token with URL restrictions for Cesium ion). See SECURITY.md.
+        #
+        # Both are OPTIONAL: with neither set the site still builds and runs on
+        # the keyless OpenStreetMap globe, and visitors can supply their own
+        # keys from the in-app notice. Add them under
+        # Settings → Secrets and variables → Actions to publish a
+        # photorealistic deployment.
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          CESIUM_ION_TOKEN: ${{ secrets.CESIUM_ION_TOKEN }}
+        run: npm run build
+
+      - name: Add SPA/404 fallback
+        # Pages serves 404.html for any unknown path. The app is a single page
+        # whose state lives in the query string, so serving the same document
+        # keeps a mistyped or stale deep link on the globe instead of GitHub's
+        # 404. Asset URLs are relative, so this works from any sub-path.
+        run: cp dist/index.html dist/404.html
+
+      - name: Skip Jekyll
+        # Without this, Pages runs the tree through Jekyll, which drops files
+        # and directories beginning with an underscore.
+        run: touch dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

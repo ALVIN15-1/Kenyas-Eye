@@ -1,3 +1,4 @@
+import { appAssetUrl } from './appAssetUrl.js';
 const MAX_GAZE_SVG_UNITS = 34;
 const FULL_GAZE_DISTANCE_PX = 320;
 const GAZE_EASING = 0.2;
@@ -88,7 +89,7 @@ export function initLogoGaze(root = document) {
 
   const loadInlineLogos = async () => {
     try {
-      const source = logos[0].dataset.logoSrc || '/logo.svg';
+      const source = appAssetUrl(logos[0].dataset.logoSrc || '/logo.svg');
       const response = await window.fetch(source);
       if (!response.ok) return;
       const markup = await response.text();

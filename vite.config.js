@@ -7330,7 +7330,7 @@ function normalizeAisTimestamp(value) {
  * plugins, configures the dev server host/port, and exposes selected
  * API keys to the client as import.meta.env defines.
  */
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // Load only this checkout's dotenv files. Shell/Keychain values still win,
   // and no sibling workspace is consulted implicitly.
   const loaded = loadEnv(mode, __dirname, '');
@@ -7338,7 +7338,16 @@ export default defineConfig(({ mode }) => {
     if (process.env[key] === undefined) process.env[key] = val;
   }
   const env = { ...process.env };
+  // Relative base for builds so one artifact is valid at any URL prefix. A
+  // GitHub Pages *project* site is served from `/<repo>/`, and an absolute
+  // `/assets/...` would resolve to the domain root and 404 there. Relative
+  // URLs also keep `dist/` openable from a plain static file server, and they
+  // sidestep vite-plugin-cesium copying its runtime to `dist/<base>/cesium`
+  // when a non-root absolute base is set. The dev server always serves from
+  // the root, so it keeps '/'.
+  const base = command === 'build' ? './' : '/';
   return {
+    base,
     plugins: [
       cesium(),
       openSkyProxy(),
@@ -7370,9 +7379,20 @@ export default defineConfig(({ mode }) => {
         : ['localhost', '127.0.0.1', '.local'],
     },
     // Expose selected API keys to the browser via import.meta.env.*
+    // NOTE: `define` is a literal text substitution, so these must always be
+    // read as `import.meta.env.NAME` in source — a computed lookup is not
+    // rewritten (only VITE_-prefixed vars survive dynamic access).
     define: {
       'import.meta.env.GOOGLE_MAPS_API_KEY': JSON.stringify(env.GOOGLE_MAPS_API_KEY),
       'import.meta.env.CESIUM_ION_TOKEN': JSON.stringify(env.CESIUM_ION_TOKEN),
+      // A build has no /api middleware: every proxy above is `configureServer`,
+      // so it runs under `vite dev` only — `vite preview` has none either.
+      // The app uses this to explain the gap rather than let each layer fail
+      // opaquely. Set GEV_STATIC_BUILD=0 when serving `dist/` behind a real
+      // backend that provides the same /api surface.
+      'import.meta.env.GEV_STATIC_BUILD': JSON.stringify(
+        command === 'build' && !/^(0|false|no)$/i.test(String(env.GEV_STATIC_BUILD ?? '')),
+      ),
     },
     build: {
       // The Cesium engine bundle is inherently large; raise the warning ceiling

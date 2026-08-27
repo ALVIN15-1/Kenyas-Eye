@@ -32,6 +32,15 @@ import {
 } from './renderGovernor.js';
 import { installScopeMask } from './scopeMask.js';
 import { initFirstRunExperience } from './firstRunExperience.js';
+import {
+  installStaticApiStub,
+  readClientCredential,
+  showStaticDeploymentNotice,
+} from './staticDeployment.js';
+
+// Before any layer can poll: on a static host there is no /api middleware, so
+// answer those calls with an explanatory 503 instead of the host's 404 page.
+installStaticApiStub();
 
 initLogoGaze();
 
@@ -73,21 +82,30 @@ async function init() {
   try {
     loaderStatus.textContent = 'Configuring viewer...';
 
-    // Set Cesium Ion token for World Terrain
-    const cesiumToken = import.meta.env.CESIUM_ION_TOKEN;
+    // Set Cesium Ion token for World Terrain. Build-time value, or one the
+    // visitor supplied on a static deployment (see staticDeployment.js).
+    const cesiumToken = readClientCredential('CESIUM_ION_TOKEN');
     if (cesiumToken) {
       Cesium.Ion.defaultAccessToken = cesiumToken;
     }
 
-    // Set Google Maps API key for 3D Tiles
-    const googleApiKey = import.meta.env.GOOGLE_MAPS_API_KEY;
-    if (!googleApiKey) {
-      throw new Error('GOOGLE_MAPS_API_KEY not found. Set it as an environment variable.');
+    // Google Maps API key for the photorealistic 3D Tiles. OPTIONAL: without
+    // it the app used to abort here, which made every keyless deployment look
+    // broken even though MapStackController already falls back to the keyless
+    // OpenStreetMap stack when there is no Google tileset. Boot on OSM instead
+    // and say why — a globe you can fly is a far better failure mode than an
+    // error string on a black screen.
+    const googleApiKey = readClientCredential('GOOGLE_MAPS_API_KEY');
+    if (googleApiKey) {
+      Cesium.GoogleMaps.defaultApiKey = googleApiKey;
+      // Expose API key globally for geocoding in locations.js
+      window.__GOOGLE_MAPS_API_KEY__ = googleApiKey;
+    } else {
+      console.warn(
+        '[Init] No GOOGLE_MAPS_API_KEY — starting on the OpenStreetMap basemap. '
+        + 'Photorealistic 3D Tiles, geocoding and place context stay off until a key is set.'
+      );
     }
-    Cesium.GoogleMaps.defaultApiKey = googleApiKey;
-
-    // Expose API key globally for geocoding in locations.js
-    window.__GOOGLE_MAPS_API_KEY__ = googleApiKey;
 
     // Create the Cesium viewer with minimal chrome
     const viewer = new Cesium.Viewer('cesiumContainer', {
@@ -153,23 +171,30 @@ async function init() {
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
 
-    loaderStatus.textContent = 'Loading Google 3D Tiles...';
     let tileset = null;
-    try {
-      // Load Google Photorealistic 3D Tiles
-      tileset = await Cesium.createGooglePhotorealistic3DTileset({
-        onlyUsingWithGoogleGeocoder: true,
-      });
-      viewer.scene.primitives.add(tileset);
-      // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
-      // Google Photorealistic 3D Tiles provide their own terrain/elevation.
-      viewer.scene.globe.show = false;
-    } catch (tileError) {
-      console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
-      const tileErrorDetail = describeError(tileError);
-      loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
-      // Keep Cesium globe visible as fallback instead of aborting the app.
+    if (!googleApiKey) {
+      // No key, so nothing to request: keep Cesium's own globe visible and let
+      // MapStackController start on the keyless OSM stack.
+      loaderStatus.textContent = 'No Google key — using the OpenStreetMap globe...';
       viewer.scene.globe.show = true;
+    } else {
+      try {
+        loaderStatus.textContent = 'Loading Google 3D Tiles...';
+        // Load Google Photorealistic 3D Tiles
+        tileset = await Cesium.createGooglePhotorealistic3DTileset({
+          onlyUsingWithGoogleGeocoder: true,
+        });
+        viewer.scene.primitives.add(tileset);
+        // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
+        // Google Photorealistic 3D Tiles provide their own terrain/elevation.
+        viewer.scene.globe.show = false;
+      } catch (tileError) {
+        console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
+        const tileErrorDetail = describeError(tileError);
+        loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
+        // Keep Cesium globe visible as fallback instead of aborting the app.
+        viewer.scene.globe.show = true;
+      }
     }
 
     loaderStatus.textContent = 'Initializing systems...';
@@ -264,7 +289,27 @@ async function init() {
         // dataManager is passed explicitly: the globe missions enable bundled
         // keyless layers through it, and reaching for styleManager._dataManager
         // would make a private field part of this feature's contract.
-        initFirstRunExperience({ styleManager, dataManager });
+        const firstRun = initFirstRunExperience({ styleManager, dataManager });
+        // Static hosts have no /api middleware. Say so once, here rather than
+        // per failing layer, and offer the browser-side keys that turn a
+        // forked deployment into a photorealistic one without a rebuild.
+        // It QUEUES behind the first-run card: both are centred dialogs, and
+        // two of them at once is a wall of text over the globe. The card
+        // removes itself on dismiss, so that removal is the cue.
+        const revealStaticNotice = () => {
+          showStaticDeploymentNotice({ hasGoogleKey: Boolean(googleApiKey) });
+        };
+        const firstRunCard = firstRun && document.getElementById('first-run-launcher');
+        if (!firstRunCard) {
+          revealStaticNotice();
+        } else {
+          const watcher = new MutationObserver(() => {
+            if (document.getElementById('first-run-launcher')) return;
+            watcher.disconnect();
+            revealStaticNotice();
+          });
+          watcher.observe(document.body, { childList: true, subtree: true });
+        }
       };
       loadingScreen.addEventListener('transitionend', revealFirstRun, { once: true });
       setTimeout(revealFirstRun, 900);
