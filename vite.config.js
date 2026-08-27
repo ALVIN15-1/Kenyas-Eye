@@ -61,6 +61,7 @@ import {
   validTerrainResult,
 } from './src/data/terrainHeightsProxy.js';
 import { VOICE_MODELS, isKnownVoiceTier, resolveVoiceModel } from './src/voice/voiceCost.js';
+import { joinStations, summarizeStations } from './src/data/slfStations.js';
 
 /** Resolve __dirname for ESM context. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -5271,6 +5272,105 @@ function readRequestBody(req, maxBytes = 1024 * 1024) {
  * Cesium feature metadata. Nearby Search supplies the names around the actual
  * screen-space target without exposing the Google API key in the request.
  */
+/** SLF IMIS upstream. Keyless and CC BY 4.0; see DATA_SOURCES.md. */
+const SLF_API_ROOT = 'https://measurement-api.slf.ch/public/api/imis';
+/**
+ * Cache window. IMIS reports every 30 minutes, so anything shorter re-fetches
+ * ~9,400 measurement rows for data that has not changed.
+ */
+const SLF_CACHE_MS = 5 * 60 * 1000;
+/** Upstream wait ceiling. The measurements payload is the large one. */
+const SLF_FETCH_TIMEOUT_MS = 20000;
+/** Response ceiling, guarding against an unbounded upstream body. */
+const SLF_MAX_BYTES = 24 * 1024 * 1024;
+
+/**
+ * Vite plugin: WSL/SLF IMIS Alpine stations.
+ *
+ * Exists because measurement-api.slf.ch sends NO CORS headers, so the browser
+ * cannot call it directly the way it calls USGS for earthquakes. This is a
+ * plain relay, not a key broker: SLF needs no credential.
+ *
+ * The two upstream calls are joined here rather than in the browser so the
+ * client receives ~205 ready-to-render stations instead of ~9,400 raw rows.
+ */
+function slfStationsProxy() {
+  let cache = null; // { at: number, payload: object }
+
+  async function fetchJson(path) {
+    const response = await fetch(`${SLF_API_ROOT}${path}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(SLF_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`SLF ${path} HTTP ${response.status}`);
+    const text = await response.text();
+    if (text.length > SLF_MAX_BYTES) throw new Error(`SLF ${path} exceeded the size limit`);
+    return JSON.parse(text);
+  }
+
+  function install(middlewares) {
+    middlewares.use('/api/slf/stations', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', stations: [] }));
+        return;
+      }
+
+      const now = Date.now();
+      if (cache && now - cache.at < SLF_CACHE_MS) {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ ...cache.payload, cached: true }));
+        return;
+      }
+
+      try {
+        // Sequential on purpose: two calls to a public research API, and the
+        // station list is the cheaper one to fail fast on.
+        const stations = await fetchJson('/stations');
+        const measurements = await fetchJson('/measurements');
+        const joined = joinStations(stations, measurements);
+        const payload = {
+          stations: joined,
+          summary: summarizeStations(joined),
+          fetchedAt: new Date(now).toISOString(),
+          error: null,
+        };
+        cache = { at: now, payload };
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ ...payload, cached: false }));
+      } catch (error) {
+        // Serve stale rather than nothing: a mountain station map that is a few
+        // minutes old beats an empty one.
+        if (cache) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ ...cache.payload, cached: true, stale: true }));
+          return;
+        }
+        console.warn('[SLF] upstream error:', error?.message || error);
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: 'Could not reach the SLF measurement API.',
+          stations: [],
+          summary: null,
+        }));
+      }
+    });
+  }
+
+  return {
+    name: 'slf-stations-proxy',
+    configureServer: (server) => install(server.middlewares),
+    configurePreviewServer: (server) => install(server.middlewares),
+  };
+}
+
 function googlePlacesContextProxy() {
   function install(middlewares) {
     middlewares.use('/api/google/nearby-places', async (req, res) => {
@@ -7360,6 +7460,7 @@ export default defineConfig(({ mode }) => {
       trackBackfillProxies(),
       openAiRealtimeProxy(),
       googlePlacesContextProxy(),
+      slfStationsProxy(),
     ],
     server: {
       host: env.HOST || 'localhost',
