@@ -119,7 +119,12 @@ async function init() {
       msaaSamples: 4,
       contextOptions: {
         webgl: {
-          preserveDrawingBuffer: true,
+          // preserveDrawingBuffer intentionally false (the default).
+          // Voice viewport capture reads the canvas synchronously inside
+          // a postRender callback (gevRealtime.js:captureViewportImage),
+          // so the frame is always current without buffer preservation.
+          // Leaving it false enables the browser's zero-copy buffer-swap
+          // fast path — a measurable per-frame GPU/CPU saving.  (perf #8.1)
         },
       },
     });
@@ -132,6 +137,14 @@ async function init() {
     // 2026-08-05 perf investigation as a strict halving of idle burn on
     // 120 Hz hardware; a no-op on 60 Hz displays. (perf item 2)
     viewer.targetFrameRate = 60;
+
+    // Enable glass blur effects on hardware that can afford it.  (perf #8.3)
+    // The CSS defaults to no backdrop-filter; adding this class activates all
+    // 22 blur passes via CSS custom properties. On lower-end devices the class
+    // stays absent and panels use the higher-opacity --glass-bg fallback.
+    if (window.devicePixelRatio >= 2 || navigator.hardwareConcurrency >= 8) {
+      document.body.classList.add('glass-effects');
+    }
 
     // Register per-layer data attribution into the "Data attribution" popover.
     // Required by each source's license (ODbL, CC BY-NC-SA, NASA FIRMS, etc.);

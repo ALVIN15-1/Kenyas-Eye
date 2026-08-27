@@ -3,6 +3,25 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased]
+
+### Performance
+
+- Disabled `preserveDrawingBuffer` on the Cesium WebGL context. Voice viewport
+  capture already reads the canvas synchronously inside a `postRender` callback,
+  so buffer preservation was unnecessary. The browser's zero-copy buffer-swap
+  fast path is now active by default. (#8 item 1)
+- Replaced 22 hardcoded `backdrop-filter: blur()` CSS rules with CSS custom
+  properties (`--glass-blur`, `--glass-blur-light`, `--glass-blur-heavy`)
+  controlled by a `body.glass-effects` class. When the class is absent, all
+  compositor blur passes are removed — the single largest paint-cost win. The
+  `--glass-bg` opacity was raised from 0.72 to 0.88 to compensate visually.
+  (#8 item 3)
+- Google Fonts stylesheets (`JetBrains Mono`, `Inter`, `Material Symbols`) are
+  now loaded asynchronously via `rel="preload"` with an `onload` swap, removing
+  three render-blocking network requests from first paint. A `<noscript>`
+  fallback preserves behavior when JavaScript is disabled. (#8 item 5)
+
 ## [Unreleased] — 2026-08-24
 
 ### Added
