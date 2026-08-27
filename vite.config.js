@@ -3451,6 +3451,10 @@ const CCTV_SOURCE_FETCH_TIMEOUT_MS = 15 * 1000;
  * client refresh cadence. A bounded miss can fall through to Street View or
  * the synthetic frame instead of leaving the browser preview pending. */
 export const CCTV_FRAME_FETCH_TIMEOUT_MS = 8 * 1000;
+/** Bounds how long the media proxy waits for an upstream to start responding.
+ * The timer is cleared once headers arrive, so a healthy live stream keeps
+ * flowing; only a stalled connect or a hung upstream is aborted (504). */
+const CCTV_MEDIA_FETCH_TIMEOUT_MS = 15 * 1000;
 /** @type {Array<object>} Cached merged + normalized CCTV source list. */
 let _cctvSourceCache = [];
 /** @type {number} Epoch-ms when the source cache was last refreshed. */
@@ -4562,9 +4566,17 @@ function cctvProxy() {
               const upstreamHeaders = { 'User-Agent': 'gods-eye-view-cctv-proxy/1.0' };
               const requestRange = req.headers?.range;
               if (requestRange) upstreamHeaders.Range = requestRange;
-              const upstream = await fetch(mediaUrl, {
-                headers: upstreamHeaders,
-              });
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), CCTV_MEDIA_FETCH_TIMEOUT_MS);
+              let upstream;
+              try {
+                upstream = await fetch(mediaUrl, {
+                  headers: upstreamHeaders,
+                  signal: controller.signal,
+                });
+              } finally {
+                clearTimeout(timeoutId);
+              }
               const contentType = upstream.headers.get('content-type') || '';
               if (!upstream.ok) {
                 setHealth(cameraId, {
@@ -4599,14 +4611,15 @@ function cctvProxy() {
               });
               return;
             } catch (error) {
+              const timedOut = error?.name === 'AbortError' || error?.name === 'TimeoutError';
               setHealth(cameraId, {
                 status: 'degraded',
                 sourceKind: 'upstream',
                 label: source?.provider || 'Configured source',
-                message: error?.message || 'Media fetch failed',
+                message: timedOut ? 'Upstream timed out' : (error?.message || 'Media fetch failed'),
               });
-              res.writeHead(502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-              res.end(JSON.stringify({ error: 'Media proxy failed' }));
+              res.writeHead(timedOut ? 504 : 502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({ error: timedOut ? 'Upstream media timeout' : 'Media proxy failed' }));
               return;
             }
           }
