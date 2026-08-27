@@ -5426,6 +5426,12 @@ function googlePlacesContextProxy() {
         res.end(JSON.stringify({ error: 'q, lat and lon are required', places: [] }));
         return;
       }
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'lat must be within [-90, 90] and lon within [-180, 180]', places: [] }));
+        return;
+      }
 
       try {
         const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
