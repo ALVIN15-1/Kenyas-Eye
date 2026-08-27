@@ -143,6 +143,12 @@ Updated: August 24, 2026
 > no height sampling and no canvas work after the single clear on the disable
 > transition. The hard-crop (FEATHER 0) path honors the same terminus.
 
+> **FIRMS proxy IPv4 fallback (#68):**
+> `firmsProxy()` in `vite.config.js` executes standard `fetch()` first and falls
+> back to an explicit IPv4 (`family: 4`) request via `node:https` when standard
+> `fetch()` fails due to IPv6 connection timeouts on unrouted hosts. Proxy logs
+> surface `error.cause` alongside error messages.
+
 This is the current runtime/source-of-truth snapshot for the project.
 
 > [!IMPORTANT]
