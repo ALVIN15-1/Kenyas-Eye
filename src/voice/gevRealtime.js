@@ -1,4 +1,5 @@
 import { createGevActionRunner, readLayerLifecycleSummary } from './gevActions.js';
+import { GevLiveKitController } from './gevLiveKit.js';
 import {
   DEFAULT_VOICE_TIER,
   VOICE_COST_LIMITS,
@@ -200,7 +201,10 @@ export function initGevVoiceCommands({ viewer, styleManager, dataManager, sceneD
   const runner = createGevActionRunner({ viewer, styleManager, dataManager, sceneDirector, annotations });
   const ui = createVoiceControl({ reset: true });
   const radioLayer = dataManager?.layers?.get('radio')?.module || null;
-  const controller = new GevRealtimeController({ runner, ui, radioLayer, dataManager });
+  const Controller = import.meta.env.VITE_VOICE_BACKEND === 'livekit'
+    ? GevLiveKitController
+    : GevRealtimeController;
+  const controller = new Controller({ runner, ui, radioLayer, dataManager });
   // Deferred annotation outlines finish AFTER their tool result returned. Feed the
   // final outcome (resolved / failed) into the conversation so the model can honestly
   // confirm — or correct — what it narrated about a boundary it never saw land.

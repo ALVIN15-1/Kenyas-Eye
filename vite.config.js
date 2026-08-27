@@ -27,7 +27,7 @@
 
 import fs from 'node:fs';
 import { promises as fsp } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import https from 'node:https';
@@ -4951,6 +4951,72 @@ function trackBackfillProxies() {
   };
 }
 
+function base64url(input) {
+  return Buffer.from(input).toString('base64url');
+}
+
+function signLiveKitToken({ apiKey, apiSecret, identity, room, ttlSeconds = 3600 }) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = base64url(JSON.stringify({
+    iss: apiKey,
+    sub: identity,
+    nbf: now - 5,
+    iat: now,
+    exp: now + ttlSeconds,
+    video: {
+      room,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+    },
+  }));
+  const signature = createHmac('sha256', apiSecret).update(`${header}.${payload}`).digest('base64url');
+  return `${header}.${payload}.${signature}`;
+}
+
+/** Vite plugin: LiveKit browser token for self-hosted voice mode. */
+function liveKitTokenProxy() {
+  function install(middlewares) {
+    middlewares.use('/api/livekit/token', async (req, res) => {
+      if (req.method !== 'POST') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const parsed = body ? JSON.parse(body) : {};
+          const apiKey = process.env.LIVEKIT_API_KEY || 'devkey';
+          const apiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
+          const publicUrl = process.env.LIVEKIT_PUBLIC_URL || process.env.LIVEKIT_URL || 'ws://localhost:7880';
+          const prefix = process.env.GEV_LIVEKIT_ROOM_PREFIX || 'gev-voice';
+          const suffix = String(parsed.room || randomUUID()).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || randomUUID();
+          const room = suffix.startsWith(`${prefix}-`) ? suffix : `${prefix}-${suffix}`;
+          const identity = `browser-${randomUUID()}`;
+          const token = signLiveKitToken({ apiKey, apiSecret, identity, room });
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ url: publicUrl, token, room, identity }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: error?.message || String(error) }));
+        }
+      });
+    });
+  }
+  return {
+    name: 'gev-livekit-token-proxy',
+    configureServer(server) { install(server.middlewares); },
+    configurePreviewServer(server) { install(server.middlewares); },
+  };
+}
+
 /**
  * Vite plugin: OpenAI Realtime ephemeral client secret.
  *
@@ -7358,6 +7424,7 @@ export default defineConfig(({ mode }) => {
       adsbLolProxy(),
       aisLiveProxy(),
       trackBackfillProxies(),
+      liveKitTokenProxy(),
       openAiRealtimeProxy(),
       googlePlacesContextProxy(),
     ],
@@ -7373,6 +7440,7 @@ export default defineConfig(({ mode }) => {
     define: {
       'import.meta.env.GOOGLE_MAPS_API_KEY': JSON.stringify(env.GOOGLE_MAPS_API_KEY),
       'import.meta.env.CESIUM_ION_TOKEN': JSON.stringify(env.CESIUM_ION_TOKEN),
+      'import.meta.env.VITE_VOICE_BACKEND': JSON.stringify(env.VITE_VOICE_BACKEND || 'openai'),
     },
     build: {
       // The Cesium engine bundle is inherently large; raise the warning ceiling

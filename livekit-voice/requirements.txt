@@ -1,0 +1,7 @@
+livekit-agents[openai,silero]~=1.2
+livekit-api~=1.0
+livekit-plugins-openai~=1.2
+livekit-plugins-silero~=1.2
+PyJWT~=2.10
+pytest~=8.3
+pytest-asyncio~=0.25
