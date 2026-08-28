@@ -1,0 +1,10 @@
+services:
+  gods-eye-view:
+    build: .
+    ports:
+      - "4173:4173"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=4173
