@@ -30,6 +30,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Fixed
 
+- All three VIIRS sources now reach the Active Fires layer. Merging a source's
+  detections used argument spread, which exceeds the engine's argument limit on
+  the two largest sources and dropped them entirely — leaving roughly a third of
+  global detections while reporting each dropped source twice, once as
+  successful with its real count and once as failed.
 - A missing optional FIRMS key no longer turns the complete Environmental
   mission into `LOAD FAILED`. The FIRMS row still reports `KEY REQUIRED`, while
   earthquakes continue to load. Real lifecycle and fetch failures retain
